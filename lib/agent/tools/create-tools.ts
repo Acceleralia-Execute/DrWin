@@ -13,8 +13,6 @@ const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
  */
 export async function generateConcept(params: any) {
     try {
-        console.log('generateConcept recibió parámetros:', JSON.stringify(params, null, 2));
-        
         // Aceptar parámetros con diferentes nombres
         let grantContext = params.grantContext || params.grant_context || params.call_context || params.context || params.callContext || '';
         const companyProfile = params.companyProfile || params.company_profile || {};
@@ -49,14 +47,12 @@ export async function generateConcept(params: any) {
 
         // Si aún no hay grantContext, usar un contexto por defecto para pruebas
         if (!grantContext || (typeof grantContext === 'string' && grantContext.trim() === '')) {
-            console.warn('No se proporcionó grantContext, usando contexto por defecto para pruebas');
             grantContext = 'Convocatoria de financiación para proyectos de innovación tecnológica. Objetivos: fomentar la investigación y desarrollo, promover la innovación, y apoyar proyectos con impacto social y tecnológico. Áreas temáticas: Tecnologías de la información, Inteligencia artificial, Robótica, Salud digital, Innovación social.';
         }
 
         // Validar companyProfile - si no existe, crear uno por defecto para pruebas
         let finalCompanyProfile = companyProfile;
         if (!companyProfile || typeof companyProfile !== 'object' || Object.keys(companyProfile).length === 0) {
-            console.warn('No se proporcionó companyProfile completo, usando valores por defecto para pruebas');
             finalCompanyProfile = {
                 name: companyProfile?.name || params.projectTitle || params.project_title || 'Organización Solicitante',
                 businessSummary: companyProfile?.businessSummary || companyProfile?.business_summary || params.projectDescription || params.project_description || 'Organización dedicada a la innovación tecnológica',
@@ -71,8 +67,6 @@ export async function generateConcept(params: any) {
             };
         }
 
-        console.log('grantContext procesado:', grantContext.substring(0, 200) + '...');
-        console.log('finalCompanyProfile:', finalCompanyProfile);
 
         const fullSchema = {
             type: Type.OBJECT,
@@ -182,9 +176,7 @@ Para los paquetes de trabajo, asigna un líder lógico (el cliente o un socio) y
                 potentialPartners: generatedData.potentialPartners || 'No se especificaron socios potenciales',
                 workPackages: generatedData.workPackages.map((wp: any, index: number) => {
                     // Validar que cada WP tenga los campos necesarios
-                    if (!wp.title || !wp.objective || !wp.leader) {
-                        console.warn(`WP ${index} incompleto:`, wp);
-                    }
+                    // (validación silenciosa)
                     return {
                         id: `wp_${Date.now()}_${index}`,
                         title: wp.title || `WP${index + 1}`,
@@ -198,12 +190,6 @@ Para los paquetes de trabajo, asigna un líder lógico (el cliente o un socio) y
         };
     } catch (error: any) {
         console.error('Error generating concept:', error);
-        const receivedParams = {
-            grantContext: params.grantContext || params.grant_context || params.context,
-            companyProfile: params.companyProfile || params.company_profile,
-            hasProjectIdea: !!(params.projectIdea || params.project_idea || params.idea)
-        };
-        console.error('Parámetros recibidos:', receivedParams);
         return {
             error: `Error al generar el concepto: ${error.message}`,
             details: error.stack

@@ -47,6 +47,7 @@ const Missions: React.FC = () => {
     const { settings, updateSetting } = useSettings();
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
+    const [loadingMessage, setLoadingMessage] = useState<string | null>(null);
     const [attachments, setAttachments] = useState<Attachment[]>([]);
     const scrollRef = useRef<HTMLDivElement>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -184,7 +185,18 @@ const Missions: React.FC = () => {
             const result = await processMessage(
                 userMessageContent,
                 agentAttachments,
-                agentHistory
+                agentHistory,
+                (toolCalls) => {
+                    // Cuando se detectan tool calls, mostrar mensaje de carga con el MiniWin
+                    if (toolCalls.length > 0) {
+                        const miniWin = toolCalls[0].miniWin;
+                        if (miniWin) {
+                            setLoadingMessage(`Espera, que hablo con ${miniWin.name}...`);
+                        } else {
+                            setLoadingMessage('Procesando...');
+                        }
+                    }
+                }
             );
 
             const modelMessage: Message = {
@@ -211,6 +223,7 @@ const Missions: React.FC = () => {
             toast.error("Error al procesar el mensaje");
         } finally {
             setIsLoading(false);
+            setLoadingMessage(null);
         }
     };
 
@@ -375,7 +388,7 @@ const Missions: React.FC = () => {
                                     >
                                         <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
                                             <div className="w-3 h-3 border-2 border-primary-400 border-t-transparent rounded-full animate-spin"></div>
-                                            <span>{t('missions.chat.thinking')}</span>
+                                            <span>{loadingMessage || t('missions.chat.thinking')}</span>
                                         </div>
                                     </motion.div>
                                 )}

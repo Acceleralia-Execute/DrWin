@@ -293,6 +293,22 @@ const TOOLS = [
     }
 ];
 
+// Mapeo de herramientas a MiniWins (agentes especializados)
+const TOOL_TO_MINIWIN: Record<string, { name: string; module: string }> = {
+    searchOpportunities: { name: 'Explora', module: 'Find' },
+    compareGrants: { name: 'Explora', module: 'Find' },
+    validateGrant: { name: 'Ponder', module: 'Validate' },
+    simulateEvaluation: { name: 'Ponder', module: 'Validate' },
+    generateConcept: { name: 'Inventa', module: 'Create' },
+    generatePublicationContent: { name: 'Inventa', module: 'Create' },
+    draftProposalSection: { name: 'Inventa', module: 'Create' },
+    reviewProposal: { name: 'Inventa', module: 'Create' },
+    extractProposalData: { name: 'Transcripto', module: 'Readapt' },
+    analyzeObservations: { name: 'Transcripto', module: 'Readapt' },
+    adaptProposal: { name: 'Transcripto', module: 'Readapt' },
+    generateReapplicationPlan: { name: 'Transcripto', module: 'Readapt' },
+};
+
 // Mapeo de nombres de funciones a implementaciones
 const TOOL_IMPLEMENTATIONS: Record<string, Function> = {
     searchOpportunities: findTools.searchOpportunities,
@@ -458,10 +474,16 @@ async function executeTool(name: string, args: any): Promise<any> {
         return { error: `Tool ${name} no encontrado. Tools disponibles: ${Object.keys(TOOL_IMPLEMENTATIONS).join(', ')}` };
     }
     
+    const miniWin = TOOL_TO_MINIWIN[name];
+    
     try {
-        console.log(`Ejecutando tool: ${name}`, { args: JSON.stringify(args, null, 2) });
         const result = await tool(args);
-        console.log(`Tool ${name} completado:`, { success: !result.error, result: result.error ? result : 'OK' });
+        
+        // Agregar información del MiniWin al resultado
+        if (miniWin && result && !result.error) {
+            result._miniWin = miniWin;
+        }
+        
         return result;
     } catch (error: any) {
         console.error(`Error ejecutando tool ${name}:`, error);
@@ -479,7 +501,8 @@ async function executeTool(name: string, args: any): Promise<any> {
 export async function processMessage(
     userMessage: string,
     attachments: Array<{ name: string; type: string; data: string }> = [],
-    conversationHistory: AgentMessage[] = []
+    conversationHistory: AgentMessage[] = [],
+    onToolCallsDetected?: (toolCalls: Array<{ tool: string; miniWin?: { name: string; module: string } }>) => void
 ): Promise<{ response: string; toolCalls?: any[] }> {
     try {
         // Construir historial de conversación para el prompt
@@ -628,6 +651,15 @@ ${userMessage}`;
             }
         }
 
+        // Si hay tool calls, notificar antes de ejecutarlos
+        if (toolCalls.length > 0 && onToolCallsDetected) {
+            const toolCallsInfo = toolCalls.map(tc => ({
+                tool: tc.tool,
+                miniWin: TOOL_TO_MINIWIN[tc.tool]
+            }));
+            onToolCallsDetected(toolCallsInfo);
+        }
+
         // Si hay tool calls, ejecutarlos
         if (toolCalls.length > 0) {
             const toolResults = await Promise.all(
@@ -642,8 +674,15 @@ ${userMessage}`;
             let formattedTable = '';
             let searchOpportunitiesFormatted = '';
             let validateGrantFormatted = '';
+            const miniWinMessages: string[] = [];
             const resultsText = toolResults.map(tr => {
                 const result = tr.result;
+                const miniWin = TOOL_TO_MINIWIN[tr.tool];
+                
+                // Agregar mensaje del MiniWin
+                if (miniWin) {
+                    miniWinMessages.push(`He hablado con ${miniWin.name} de ${miniWin.module} y estos fueron sus resultados:`);
+                }
                 
                 // Si es adaptProposal y tiene comparativeReport, formatearlo
                 if (tr.tool === 'adaptProposal' && result?.success && result?.adaptation?.comparativeReport) {
@@ -653,17 +692,17 @@ ${userMessage}`;
                 // Si es searchOpportunities, formatearlo con URLs
                 if (tr.tool === 'searchOpportunities' && result?.success) {
                     searchOpportunitiesFormatted = formatSearchOpportunitiesResults(result);
-                    return `Resultado de ${tr.tool}:${searchOpportunitiesFormatted}`;
+                    return `${miniWin ? `**Comunicación con ${miniWin.name} de ${miniWin.module}:**\n\n` : ''}Resultado de ${tr.tool}:${searchOpportunitiesFormatted}`;
                 }
                 
                 // Si es validateGrant, formatearlo con puntajes al principio
                 if (tr.tool === 'validateGrant' && result?.success) {
                     validateGrantFormatted = formatValidateGrantResults(result);
                     // Incluir también los datos completos para que el agente pueda usarlos
-                    return `Resultado de ${tr.tool}:${validateGrantFormatted}\n\nDatos completos de validación:\n${JSON.stringify(result, null, 2)}`;
+                    return `${miniWin ? `**Comunicación con ${miniWin.name} de ${miniWin.module}:**\n\n` : ''}Resultado de ${tr.tool}:${validateGrantFormatted}\n\nDatos completos de validación:\n${JSON.stringify(result, null, 2)}`;
                 }
                 
-                return `Resultado de ${tr.tool}:\n${JSON.stringify(result, null, 2)}`;
+                return `${miniWin ? `**Comunicación con ${miniWin.name} de ${miniWin.module}:**\n\n` : ''}Resultado de ${tr.tool}:\n${JSON.stringify(result, null, 2)}`;
             }).join('\n\n');
 
             const tableSection = formattedTable ? `
@@ -698,16 +737,20 @@ IMPORTANTE: Los puntajes DEBEN aparecer al principio del mensaje, antes del resu
 
 ` : '';
 
+            const miniWinIntro = miniWinMessages.length > 0 
+                ? `\n\n## Comunicación con MiniWins\n\n${miniWinMessages.join('\n\n')}\n\n` 
+                : '';
+
             const finalPrompt = `${responseText}
 
 ## Resultados de las Herramientas
 
-${resultsText}
+${miniWinIntro}${resultsText}
 ${tableSection}
 ${searchOpportunitiesSection}
 ${validateGrantSection}
 
-Ahora explica estos resultados al usuario de forma clara y estructurada usando markdown. Si hay errores, explícalos. Si hay datos, preséntalos de forma organizada.
+Ahora explica estos resultados al usuario de forma clara y estructurada usando markdown. ${miniWinMessages.length > 0 ? 'Menciona que te comunicaste con los MiniWins correspondientes (Explora, Ponder, Inventa, Transcripto, etc.) para obtener estos resultados. ' : ''}Si hay errores, explícalos. Si hay datos, preséntalos de forma organizada.
 
 ${formattedTable ? 'IMPORTANTE: Incluye la tabla comparativa pre-formateada que aparece arriba en tu respuesta final, en la sección correspondiente del informe comparativo.' : ''}
 ${searchOpportunitiesFormatted ? 'IMPORTANTE: Incluye la tabla de resultados de búsqueda pre-formateada que aparece arriba en tu respuesta final. Asegúrate de que todas las URLs sean clicables y visibles para el usuario.' : ''}

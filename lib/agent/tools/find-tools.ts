@@ -317,9 +317,6 @@ export async function searchOpportunities(params: SearchOpportunitiesParams | an
             internationalTenders: fundingTypes.internationalTenders === true,
         };
 
-        // DEBUG: Log de los tipos de financiación normalizados
-        console.log('[searchOpportunities] Funding types normalizados:', normalizedFundingTypes);
-        console.log('[searchOpportunities] Solo internacionales solicitado:', onlyInternationalRequested);
 
         const promises: Promise<any[]>[] = [];
         
@@ -440,13 +437,6 @@ async function searchEuropeanGrants(keywords: string[] | string, start?: string,
         const originalKeywords = [...keywordsArray];
         keywordsArray = translateKeywordsToEnglish(keywordsArray);
         
-        if (JSON.stringify(originalKeywords) !== JSON.stringify(keywordsArray)) {
-            console.log(`[European Commission] Keywords traducidas:`, {
-                originales: originalKeywords,
-                traducidas: keywordsArray
-            });
-        }
-        
         const API_URL = "https://api.tech.ec.europa.eu/search-api/prod/rest/search?";
         
         let allResults: any[] = [];
@@ -459,8 +449,6 @@ async function searchEuropeanGrants(keywords: string[] | string, start?: string,
 
         // Construct a broad search query (no quotes) to ensure results
         const searchText = keywordsArray.join(' ');
-
-        console.log(`[European Commission] Buscando con keywords: ${searchText}`);
 
         while (hasMoreResults && pageNumber <= maxPages) {
             const formData = new FormData();
@@ -493,22 +481,11 @@ async function searchEuropeanGrants(keywords: string[] | string, start?: string,
             
             const cacheKey = `EU_${searchText}_PAGE_${pageNumber}_START_${start}_END_${end}`;
             
-            console.log(`[European Commission] Página ${pageNumber}, URL: ${API_URL}`);
-            
             try {
                 const response = await fetchWithRetry(API_URL, { method: "POST", body: formData }, 3, 'json', cacheKey);
                 
-                // DEBUG: Log la respuesta para diagnosticar
-                console.log(`[European Commission] Respuesta página ${pageNumber}:`, {
-                    hasResults: !!response.results,
-                    resultsLength: response.results?.length || 0,
-                    responseKeys: Object.keys(response || {}),
-                    sampleResult: response.results?.[0] || null
-                });
-                
                 if (response && response.results && Array.isArray(response.results) && response.results.length > 0) {
                     allResults = [...allResults, ...response.results];
-                    console.log(`[European Commission] Página ${pageNumber}: ${response.results.length} resultados, total acumulado: ${allResults.length}`);
                     
                     if (response.results.length < pageSize) {
                         hasMoreResults = false;
@@ -516,12 +493,6 @@ async function searchEuropeanGrants(keywords: string[] | string, start?: string,
                         pageNumber++;
                     }
                 } else {
-                    // Si no hay resultados, log para entender por qué
-                    if (response && !response.results) {
-                        console.warn(`[European Commission] Respuesta sin campo 'results':`, response);
-                    } else if (response && response.results && response.results.length === 0) {
-                        console.log(`[European Commission] Página ${pageNumber}: 0 resultados`);
-                    }
                     hasMoreResults = false;
                 }
             } catch (fetchError: any) {
@@ -530,10 +501,7 @@ async function searchEuropeanGrants(keywords: string[] | string, start?: string,
             }
         }
 
-        console.log(`[European Commission] Total resultados encontrados: ${allResults.length}`);
-
         const uniqueResults = [...new Map(allResults.map(item => [getField(item, 'identifier'), item])).values()];
-        console.log(`[European Commission] Resultados únicos después de deduplicar: ${uniqueResults.length}`);
         
         // Normalizar palabras clave: convertir a minúsculas y normalizar acentos
         const normalizeText = (text: string) => {
@@ -546,9 +514,6 @@ async function searchEuropeanGrants(keywords: string[] | string, start?: string,
         const keywordsForRanking = [...new Set([...originalKeywords, ...keywordsArray])];
         const lowerKeywords = keywordsForRanking.map(k => normalizeText(k));
         
-        // DEBUG: Log las palabras clave normalizadas
-        console.log(`[European Commission] Palabras clave para ranking:`, lowerKeywords);
-        
         const rankedResults = uniqueResults.map((result: any) => {
             let score = 0;
             const matchedKeywords = new Set<string>();
@@ -556,19 +521,7 @@ async function searchEuropeanGrants(keywords: string[] | string, start?: string,
             const titleText = normalizeText((getField(result, 'title') || '') + " " + (getField(result, 'callTitle') || ''));
             const descriptionText = normalizeText((getField(result, 'descriptionByte') || getField(result, 'description') || ''));
             
-            // DEBUG: Log el primer resultado para ver qué contiene
-            if (uniqueResults.indexOf(result) === 0) {
-                console.log(`[European Commission] DEBUG Primer resultado:`, {
-                    title: getField(result, 'title'),
-                    callTitle: getField(result, 'callTitle'),
-                    titleText: titleText.substring(0, 200),
-                    descriptionText: descriptionText.substring(0, 200),
-                    hasDescription: !!descriptionText
-                });
-            }
-            
             if (!titleText && !descriptionText) {
-                console.log(`[European Commission] Resultado sin título ni descripción, score: 0`);
                 return { ...result, relevanceScore: 0 };
             }
 
@@ -578,16 +531,10 @@ async function searchEuropeanGrants(keywords: string[] | string, start?: string,
                 if (titleText.includes(keyword)) { 
                     score += 10; 
                     isMatched = true; 
-                    if (uniqueResults.indexOf(result) === 0) {
-                        console.log(`[European Commission] Match en título: "${keyword}"`);
-                    }
                 }
                 if (descriptionText.includes(keyword)) { 
                     score += 1; 
                     isMatched = true; 
-                    if (uniqueResults.indexOf(result) === 0) {
-                        console.log(`[European Commission] Match en descripción: "${keyword}"`);
-                    }
                 }
                 if (isMatched) { matchedKeywords.add(keyword); }
             });
@@ -601,26 +548,10 @@ async function searchEuropeanGrants(keywords: string[] | string, start?: string,
                 // Bonus máximo de 1000 si todas coinciden, proporcional si no
                 const progressiveBonus = Math.round(matchRatio * 1000);
                 score += progressiveBonus;
-                
-                if (matchCount === keywordsArray.length && uniqueResults.indexOf(result) === 0) {
-                    console.log(`[European Commission] Bonus: todas las palabras coinciden (+${progressiveBonus})`);
-                } else if (uniqueResults.indexOf(result) === 0) {
-                    console.log(`[European Commission] Bonus progresivo: ${matchCount}/${keywordsArray.length} palabras coinciden (+${progressiveBonus})`);
-                }
             }
             
             // Score base por cada keyword que coincida
             score += matchCount * 100;
-            
-            // DEBUG: Log el score final del primer resultado
-            if (uniqueResults.indexOf(result) === 0) {
-                console.log(`[European Commission] DEBUG Score final:`, {
-                    matchCount,
-                    totalKeywords: keywordsArray.length,
-                    matchedKeywords: Array.from(matchedKeywords),
-                    finalScore: score
-                });
-            }
     
             return { ...result, relevanceScore: score };
         })
@@ -634,9 +565,6 @@ async function searchEuropeanGrants(keywords: string[] | string, start?: string,
             if (result.relevanceScore === 0) {
                 // Asignar score mínimo basado en si hay pocas o muchas keywords
                 result.relevanceScore = isFewKeywords ? 5 : 1; // Score más alto si hay pocas keywords
-                if (uniqueResults.indexOf(result) === 0) {
-                    console.log(`[European Commission] Resultado con score 0, asignando score mínimo de ${result.relevanceScore} (pocas keywords: ${isFewKeywords})`);
-                }
             }
             
             // Con pocas keywords, ser más permisivo (incluir score >= 0)
@@ -645,21 +573,9 @@ async function searchEuropeanGrants(keywords: string[] | string, start?: string,
                 ? (result.relevanceScore !== undefined && result.relevanceScore >= 0)
                 : (result.relevanceScore !== undefined && result.relevanceScore > 0);
             
-            if (!shouldInclude && uniqueResults.indexOf(result) === 0) {
-                console.log(`[European Commission] Resultado filtrado: score=${result.relevanceScore}, pocas keywords=${isFewKeywords}`);
-            }
-            
             return shouldInclude;
         })
         .sort((a: any, b: any) => b.relevanceScore - a.relevanceScore);
-    
-        console.log(`[European Commission] Resultados finales después de ranking: ${rankedResults.length}`);
-        if (rankedResults.length > 0) {
-            console.log(`[European Commission] Primer resultado rankeado:`, {
-                title: rankedResults[0].title || getField(rankedResults[0], 'title'),
-                score: rankedResults[0].relevanceScore
-            });
-        }
     
         return processEuropeanResults(rankedResults.slice(0, 15));
     

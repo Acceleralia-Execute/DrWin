@@ -78,10 +78,7 @@ export async function validateGrant(params: any) {
         }
         
         // 4. Validar que haya nombre de la convocatoria (recomendado pero no obligatorio)
-        if (!grantName || grantName.trim().length === 0) {
-            // No bloqueamos, pero informamos que sería útil
-            console.warn('Advertencia: No se proporcionó nombre de la convocatoria. El análisis será menos preciso.');
-        }
+        // Nota: Si no se proporciona, el análisis será menos preciso pero continuará
 
         const hasProject = projectDetails?.title && projectDetails?.description;
         const hasCompanyProfile = companyProfile?.name && companyProfile?.businessSummary;
@@ -364,12 +361,11 @@ export async function validateGrant(params: any) {
         `;
 
         const response = await ai.models.generateContent({
-            model: "gemini-2.0-flash-thinking-exp",
+            model: "gemini-2.5-flash",
             contents: prompt,
             config: {
                 maxOutputTokens: 8192,
-                tools: [{ googleSearch: {} }],
-                // NOTE: responseMimeType and responseSchema are incompatible with tools (googleSearch)
+                // NOTE: googleSearch tool removed as it's not compatible with responseSchema
                 // We'll parse JSON manually instead
             },
         });
@@ -421,7 +417,6 @@ export async function validateGrant(params: any) {
             result = JSON.parse(jsonText);
         } catch (parseError) {
             console.error("JSON Parse Error:", parseError);
-            console.log("Raw Response:", responseText);
             throw new Error("Error parsing AI response.");
         }
 
@@ -451,11 +446,9 @@ export async function validateGrant(params: any) {
                 
                 if (saysMissingInfo) {
                     // El modelo dice que falta información pero está disponible - esto es un error
-                    console.log(`ERROR: Model says project info is missing but it was provided. Project: ${projectDetails.title || 'N/A'}`);
-                    
                     // Si el overall score es muy bajo (<30) y el modelo dice que falta info, probablemente es por este error
                     if (overallScore < 30) {
-                        // No ajustar automáticamente, pero loguear el error para debugging
+                        // No ajustar automáticamente, pero agregar advertencia
                         result.analysis.justification = (result.analysis.justification || '') + 
                             ' [ADVERTENCIA: El modelo indicó que falta información del proyecto, pero la información fue proporcionada. Los scores pueden ser incorrectos.]';
                     }
@@ -492,7 +485,6 @@ export async function validateGrant(params: any) {
                     domainAlignment.score = 30; // Forzar a máximo 30
                     domainAlignment.reasoning = (domainAlignment.reasoning || '') + 
                         ` [AJUSTADO: Score reducido de ${oldDomainScore} a 30 debido a indicadores de desajuste de dominio detectados]`;
-                    console.log(`Domain alignment score forced: ${oldDomainScore} -> 30 (mismatch indicators found)`);
                 }
             }
             
@@ -517,7 +509,6 @@ export async function validateGrant(params: any) {
                 // Si el overall score reportado difiere significativamente del calculado, usar el calculado
                 const scoreDifference = Math.abs(overallScore - calculatedScore);
                 if (scoreDifference > 5) {
-                    console.log(`Overall score mismatch detected: Reported ${overallScore}, Calculated ${calculatedScore.toFixed(1)}. Using calculated.`);
                     result.analysis.overallScore = Math.round(calculatedScore * 10) / 10;
                     if (result.analysis.justification) {
                         result.analysis.justification += ` [AJUSTADO: Overall score recalculado de ${overallScore} a ${result.analysis.overallScore}]`;
@@ -538,7 +529,6 @@ export async function validateGrant(params: any) {
                     } else {
                         result.analysis.justification = `[AJUSTADO: Overall score limitado a 25 debido a desajuste de dominio (Domain score: ${domainAlignment.score})]`;
                     }
-                    console.log(`Overall score capped at 25 due to domain misalignment (Domain: ${domainAlignment.score})`);
                 }
             }
             
@@ -552,7 +542,6 @@ export async function validateGrant(params: any) {
                     } else {
                         result.analysis.justification = "[AJUSTADO: Puntuación general reducida debido a desajuste de dominio detectado]";
                     }
-                    console.log(`Domain misalignment detected: Domain score ${domainAlignment.score}, Overall adjusted to ${adjustedScore}`);
                 }
             }
             
@@ -573,7 +562,6 @@ export async function validateGrant(params: any) {
                     } else {
                         result.analysis.justification = "[AJUSTADO: Indicadores de desajuste de dominio detectados en el análisis]";
                     }
-                    console.log(`Mismatch indicators found in high-score analysis: Adjusted from ${result.analysis.overallScore} to ${adjustedScore}`);
                 }
             }
         }
@@ -660,7 +648,7 @@ export async function simulateEvaluation(params: {
         `;
 
         const response = await ai.models.generateContent({
-            model: "gemini-2.0-flash-thinking-exp",
+            model: "gemini-2.5-flash",
             contents: prompt,
             config: {
                 responseMimeType: "application/json",

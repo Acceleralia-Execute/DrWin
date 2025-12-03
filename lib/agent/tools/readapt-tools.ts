@@ -183,8 +183,6 @@ Sé específico y proporciona recomendaciones accionables.`;
  */
 export async function adaptProposal(params: any) {
     try {
-        console.log('adaptProposal recibió parámetros:', Object.keys(params));
-        
         // Aceptar parámetros con diferentes nombres
         const originalProposal = params.originalProposal || params.original_proposal || params.existingProposal || params.existing_proposal || params.proposal || params.proposalText || params.proposal_text || params.proposal_content;
         const feedbackFile = params.feedbackFile || params.feedback_file || params.feedback || params.feedbackText || params.feedback_text || params.feedback_content;
@@ -196,7 +194,6 @@ export async function adaptProposal(params: any) {
         let proposalText = '';
 
         if (!originalProposal || (typeof originalProposal === 'string' && originalProposal.trim() === '')) {
-            console.error('No se proporcionó originalProposal');
             return { error: 'Se requiere la propuesta original' };
         }
 
@@ -211,9 +208,6 @@ export async function adaptProposal(params: any) {
         if (typeof originalProposal === 'string' && !isBase64) {
             proposalIsText = true;
             proposalText = originalProposal;
-            console.log('Proposal detectado como texto plano, longitud:', proposalText.length);
-        } else {
-            console.log('Proposal detectado como base64 o archivo');
         }
 
         // Detectar si feedback es texto plano
@@ -229,7 +223,6 @@ export async function adaptProposal(params: any) {
             if (typeof feedbackFile === 'string' && !isFeedbackBase64) {
                 feedbackIsText = true;
                 feedbackText = feedbackFile;
-                console.log('Feedback detectado como texto plano, longitud:', feedbackText.length);
             }
         }
 
@@ -239,8 +232,6 @@ export async function adaptProposal(params: any) {
             if (!feedbackFile && !feedbackText) {
                 return { error: 'Se requiere información de la nueva convocatoria o feedback de evaluación previa' };
             }
-            // Si hay feedback pero no nueva convocatoria, es una reaplicación (adaptar basándose en feedback)
-            console.log('Modo reaplicación: adaptando propuesta basándose en feedback sin nueva convocatoria');
         }
 
         const schema = {
