@@ -42,7 +42,7 @@ const Account: React.FC = () => {
       <div className="mt-8 space-y-8">
         <SettingsCard title={t('page_account.preview.title')}>
             <div className="p-4 bg-neutral-100 dark:bg-neutral-800 rounded-md border border-border">
-                <h4 className="font-bold">Agentic Brain</h4>
+                <h4 className="font-bold">DrWin</h4>
                 <p className="text-sm text-muted-foreground">
                     {settings.account.name 
                         ? t('page_account.preview.byline', { name: settings.account.name }) 

@@ -1,5 +1,5 @@
 /**
- * Prompt maestro del Agentic Brain
+ * Prompt maestro de DrWin
  * Este archivo contiene las instrucciones principales del agente.
  * Puedes modificar este prompt sin tocar el código del agente.
  */
