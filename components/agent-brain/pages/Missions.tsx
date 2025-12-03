@@ -6,6 +6,10 @@ import { cn } from '../../../lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useSettings } from '../../../context/SettingsContext';
 import { Message, Attachment } from '../../../context/SettingsContext';
+import ExploraIcon from '../../../assets/ExploraIcon';
+import PonderIcon from '../../../assets/PonderIcon';
+import InventaIcon from '../../../assets/InventaIcon';
+import TranscriptoIcon from '../../../assets/TranscriptoIcon';
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -48,6 +52,7 @@ const Missions: React.FC = () => {
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [loadingMessage, setLoadingMessage] = useState<string | null>(null);
+    const [currentMiniWin, setCurrentMiniWin] = useState<{ name: string; module: string } | null>(null);
     const [attachments, setAttachments] = useState<Attachment[]>([]);
     const scrollRef = useRef<HTMLDivElement>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -191,8 +196,10 @@ const Missions: React.FC = () => {
                     if (toolCalls.length > 0) {
                         const miniWin = toolCalls[0].miniWin;
                         if (miniWin) {
+                            setCurrentMiniWin(miniWin);
                             setLoadingMessage(`Espera, que hablo con ${miniWin.name}...`);
                         } else {
+                            setCurrentMiniWin(null);
                             setLoadingMessage('Procesando...');
                         }
                     }
@@ -224,6 +231,7 @@ const Missions: React.FC = () => {
         } finally {
             setIsLoading(false);
             setLoadingMessage(null);
+            setCurrentMiniWin(null);
         }
     };
 
@@ -246,6 +254,18 @@ const Missions: React.FC = () => {
             ...grouped['Low'],
         ];
     }, [settings.conversationHistory]);
+
+    // Función para obtener el icono del MiniWin basado en el módulo
+    const getMiniWinIcon = (module: string) => {
+        const iconProps = { className: "w-12 h-12" };
+        switch(module) {
+            case 'Find': return <ExploraIcon {...iconProps} />;
+            case 'Validate': return <PonderIcon {...iconProps} />;
+            case 'Create': return <InventaIcon {...iconProps} />;
+            case 'Readapt': return <TranscriptoIcon {...iconProps} />;
+            default: return <DrWin {...iconProps} />;
+        }
+    };
 
     return (
         <div className="flex flex-col h-full bg-neutral-50 dark:bg-neutral-950">
@@ -386,9 +406,68 @@ const Missions: React.FC = () => {
                                         animate={{ opacity: 1, y: 0 }}
                                         exit={{ opacity: 0 }}
                                     >
-                                        <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
-                                            <div className="w-3 h-3 border-2 border-primary-400 border-t-transparent rounded-full animate-spin"></div>
-                                            <span>{loadingMessage || t('missions.chat.thinking')}</span>
+                                        <div className="flex flex-col items-center justify-center gap-3 py-4">
+                                            {/* Animación de comunicación entre DrWin y MiniWin */}
+                                            {currentMiniWin && (
+                                                <div className="flex items-center justify-center gap-3">
+                                                    {/* Icono de DrWin */}
+                                                    <motion.div
+                                                        animate={{ 
+                                                            scale: [1, 1.1, 1],
+                                                            opacity: [0.7, 1, 0.7]
+                                                        }}
+                                                        transition={{ 
+                                                            duration: 1.5,
+                                                            repeat: Infinity,
+                                                            ease: "easeInOut"
+                                                        }}
+                                                    >
+                                                        <DrWin className="w-12 h-12" />
+                                                    </motion.div>
+                                                    
+                                                    {/* Línea animada de comunicación */}
+                                                    <motion.div
+                                                        className="w-16 h-0.5 bg-primary-400/30 relative overflow-hidden rounded-full"
+                                                        initial={{ scaleX: 0 }}
+                                                        animate={{ scaleX: 1 }}
+                                                        transition={{ duration: 0.5 }}
+                                                    >
+                                                        <motion.div
+                                                            className="absolute top-0 left-0 w-3 h-3 bg-primary-400 rounded-full -mt-1"
+                                                            animate={{ 
+                                                                x: [0, 60, 0],
+                                                            }}
+                                                            transition={{ 
+                                                                duration: 1.5,
+                                                                repeat: Infinity,
+                                                                ease: "easeInOut"
+                                                            }}
+                                                        />
+                                                    </motion.div>
+                                                    
+                                                    {/* Icono del MiniWin */}
+                                                    <motion.div
+                                                        animate={{ 
+                                                            scale: [1, 1.1, 1],
+                                                            opacity: [0.7, 1, 0.7]
+                                                        }}
+                                                        transition={{ 
+                                                            duration: 1.5,
+                                                            repeat: Infinity,
+                                                            ease: "easeInOut",
+                                                            delay: 0.75
+                                                        }}
+                                                    >
+                                                        {getMiniWinIcon(currentMiniWin.module)}
+                                                    </motion.div>
+                                                </div>
+                                            )}
+                                            
+                                            {/* Mensaje de carga */}
+                                            <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+                                                <div className="w-3 h-3 border-2 border-primary-400 border-t-transparent rounded-full animate-spin"></div>
+                                                <span>{loadingMessage || t('missions.chat.thinking')}</span>
+                                            </div>
                                         </div>
                                     </motion.div>
                                 )}
