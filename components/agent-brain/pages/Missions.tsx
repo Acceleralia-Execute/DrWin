@@ -6,6 +6,7 @@ import { cn } from '../../../lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useSettings } from '../../../context/SettingsContext';
 import { Message, Attachment } from '../../../context/SettingsContext';
+import { useTheme } from '../../../context/ThemeContext';
 import ExploraIcon from '../../../assets/ExploraIcon';
 import PonderIcon from '../../../assets/PonderIcon';
 import InventaIcon from '../../../assets/InventaIcon';
@@ -49,6 +50,7 @@ const SuggestionCard: React.FC<{ icon: string, title: string; description: strin
 const Missions: React.FC = () => {
     const { t } = useLanguage();
     const { settings, updateSetting } = useSettings();
+    const { theme } = useTheme();
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [loadingMessage, setLoadingMessage] = useState<string | null>(null);
@@ -271,7 +273,7 @@ const Missions: React.FC = () => {
         <div className="flex flex-col h-full bg-neutral-50 dark:bg-neutral-950">
             <header className="px-6 pt-6 bg-background flex-shrink-0">
                  <div className="flex justify-between items-center">
-                    <h1 className="text-lg font-semibold text-secondary-800 dark:text-neutral-200">{t('missions.title')}</h1>
+                    <h1 className="text-lg font-semibold text-secondary-800 dark:text-neutral-200">Dr. Win</h1>
                     <div className="flex items-center gap-1 p-1 bg-neutral-200 dark:bg-neutral-800 rounded-lg">
                         <Button data-tour-id="chat-tab" size="sm" onClick={() => setView('chat')} variant={view === 'chat' ? 'secondary' : 'ghost'} className={cn("gap-1.5", view === 'chat' && 'bg-white dark:bg-neutral-950')}>
                             <span className="material-symbols-outlined text-base">chat</span> {t('missions.view.chat')}
@@ -317,12 +319,20 @@ const Missions: React.FC = () => {
                         ) : (
                             <>
                                 {settings.conversationHistory.map((msg, index) => (
-                                    <div key={index} className={cn("flex items-start gap-3", msg.role === 'user' ? 'justify-end' : 'justify-start')}>
+                                    <div key={index} className={cn("flex items-start gap-3 mb-4", msg.role === 'user' ? 'justify-end' : 'justify-start')}>
                                         {msg.role === 'model' && <DrWin className="w-8 h-8 flex-shrink-0 mt-1.5" />}
-                                        <div className={cn(
-                                            "p-3 rounded-lg prose prose-sm dark:prose-invert relative",
-                                            msg.role === 'user' ? 'bg-primary text-white max-w-[80%]' : 'bg-card border border-border max-w-[90%]'
-                                        )}>
+                                        <div 
+                                            className={cn(
+                                                "p-3 rounded-lg prose prose-sm dark:prose-invert relative",
+                                                msg.role === 'user' 
+                                                    ? 'max-w-[80%]' 
+                                                    : 'bg-card border border-border max-w-[90%]'
+                                            )}
+                                            style={msg.role === 'user' ? {
+                                                backgroundColor: theme === 'dark' ? '#2c1526' : '#f7cfe6',
+                                                color: theme === 'dark' ? '#f7cfe6' : '#1a1a1a'
+                                            } : undefined}
+                                        >
                                             {msg.priority && (
                                                 <div className={cn("absolute -top-2 -left-2 flex items-center gap-1 text-xs font-bold px-1.5 py-0.5 rounded-full text-white", priorities.find(p=>p.level===msg.priority)?.color)}>
                                                     <span className="material-symbols-outlined text-xs">{priorities.find(p=>p.level===msg.priority)?.icon}</span>
@@ -387,7 +397,7 @@ const Missions: React.FC = () => {
                                                             {att.type.startsWith('image/') ? (
                                                                 <img src={`data:${att.type};base64,${att.data}`} alt={att.name} className="w-full h-full object-cover" />
                                                             ) : (
-                                                                <div className={cn("w-full h-full flex flex-col items-center justify-center p-2", msg.role === 'user' ? 'bg-white/20 text-white' : 'bg-neutral-100 dark:bg-neutral-800 text-foreground')}>
+                                                                <div className={cn("w-full h-full flex flex-col items-center justify-center p-2", msg.role === 'user' ? 'bg-white/20 text-foreground' : 'bg-neutral-100 dark:bg-neutral-800 text-foreground')}>
                                                                     <span className="material-symbols-outlined text-3xl">description</span>
                                                                     <span className="text-xs text-center break-all truncate w-full">{att.name}</span>
                                                                 </div>
@@ -514,22 +524,26 @@ const Missions: React.FC = () => {
                 </motion.div>
                 </AnimatePresence>
             </div>
-            <div className="p-4 border-t border-border bg-background">
+            <div className="p-4 border-t border-border bg-background/95 backdrop-blur-sm">
                 <div className="max-w-4xl mx-auto">
                     {attachments.length > 0 && (
-                        <div className="mb-2">
-                            <div className="flex space-x-2 overflow-x-auto py-2">
+                        <div className="mb-3">
+                            <div className="flex gap-2 overflow-x-auto pb-2">
                                 {attachments.map((file, index) => (
-                                    <div key={index} className="relative flex-shrink-0 w-20 h-20 bg-card border rounded-md overflow-hidden group">
+                                    <div key={index} className="relative flex-shrink-0 w-24 h-24 bg-card border border-border rounded-lg overflow-hidden group shadow-sm hover:shadow-md transition-shadow">
                                         {file.type.startsWith('image/') ? (
                                             <img src={`data:${file.type};base64,${file.data}`} alt={file.name} className="w-full h-full object-cover" />
                                         ) : (
-                                            <div className="flex flex-col items-center justify-center h-full text-center bg-neutral-100 dark:bg-neutral-800 p-1">
-                                                <span className="material-symbols-outlined text-3xl text-muted-foreground">description</span>
-                                                <span className="text-xs text-muted-foreground truncate w-full px-1">{file.name}</span>
+                                            <div className="flex flex-col items-center justify-center h-full text-center bg-neutral-100 dark:bg-neutral-800 p-2">
+                                                <span className="material-symbols-outlined text-2xl text-muted-foreground">description</span>
+                                                <span className="text-xs text-muted-foreground truncate w-full mt-1">{file.name}</span>
                                             </div>
                                         )}
-                                        <button onClick={() => handleRemoveAttachment(index)} className="absolute top-0.5 right-0.5 bg-black/60 text-white rounded-full flex items-center justify-center w-5 h-5 opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <button 
+                                            onClick={() => handleRemoveAttachment(index)} 
+                                            className="absolute top-1 right-1 bg-black/70 hover:bg-black/90 text-white rounded-full flex items-center justify-center w-6 h-6 opacity-0 group-hover:opacity-100 transition-all duration-200"
+                                            title="Eliminar archivo"
+                                        >
                                             <span className="material-symbols-outlined text-sm leading-none">close</span>
                                         </button>
                                     </div>
@@ -538,12 +552,26 @@ const Missions: React.FC = () => {
                         </div>
                     )}
                     <form onSubmit={(e) => { e.preventDefault(); handleSend(); }}>
-                        <div className="relative flex items-end gap-2">
-                             <Button type="button" variant="ghost" size="icon" className="flex-shrink-0 h-11 w-11" onClick={handleNewChat}>
-                                <span className="material-symbols-outlined text-base">add</span>
+                        <div className="flex items-center gap-2 bg-card border border-border rounded-xl p-2 shadow-sm hover:shadow-md transition-shadow">
+                            <Button 
+                                type="button" 
+                                variant="ghost" 
+                                size="icon" 
+                                className="flex-shrink-0 h-10 w-10 rounded-lg hover:bg-primary/10 hover:text-primary transition-colors" 
+                                onClick={handleNewChat}
+                                title="Nuevo chat"
+                            >
+                                <span className="material-symbols-outlined text-lg">add</span>
                             </Button>
-                            <Button type="button" variant="ghost" size="icon" className="flex-shrink-0 h-11 w-11" onClick={() => fileInputRef.current?.click()}>
-                                <span className="material-symbols-outlined text-base">attach_file</span>
+                            <Button 
+                                type="button" 
+                                variant="ghost" 
+                                size="icon" 
+                                className="flex-shrink-0 h-10 w-10 rounded-lg hover:bg-primary/10 hover:text-primary transition-colors" 
+                                onClick={() => fileInputRef.current?.click()}
+                                title="Adjuntar archivo"
+                            >
+                                <span className="material-symbols-outlined text-lg">attach_file</span>
                             </Button>
                             <input
                                 type="file"
@@ -553,7 +581,7 @@ const Missions: React.FC = () => {
                                 className="hidden"
                                 accept="image/png,image/jpeg,image/gif,application/pdf,.doc,.docx"
                             />
-                            <div className="relative flex-1">
+                            <div className="relative flex-1 min-w-0">
                                 <textarea
                                     ref={textareaRef}
                                     value={input}
@@ -568,12 +596,20 @@ const Missions: React.FC = () => {
                                     disabled={isLoading}
                                     rows={1}
                                     data-tour-id="chat-input"
-                                    className="w-full min-h-[44px] max-h-48 resize-none p-3 pr-24 rounded-lg border border-input focus:ring-2 focus:ring-primary focus:outline-none"
+                                    className="w-full min-h-[40px] max-h-48 resize-none py-2.5 px-3 pr-20 bg-transparent border-0 focus:outline-none focus:ring-0 text-sm placeholder:text-muted-foreground/60"
+                                    style={{ lineHeight: '1.5' }}
                                 />
-                                <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center">
+                                <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
                                     <DropdownMenu>
                                         <DropdownMenuTrigger asChild>
-                                            <Button data-tour-id="priority-button" type="button" variant="ghost" size="icon" className="h-8 w-8">
+                                            <Button 
+                                                data-tour-id="priority-button" 
+                                                type="button" 
+                                                variant="ghost" 
+                                                size="icon" 
+                                                className="h-8 w-8 rounded-lg hover:bg-primary/10 hover:text-primary transition-colors"
+                                                title="Prioridad"
+                                            >
                                                 <span className={cn("material-symbols-outlined text-base", currentPriority ? 'text-primary' : 'text-muted-foreground')}>
                                                     {currentPriority ? 'flag' : 'outlined_flag'}
                                                 </span>
@@ -594,7 +630,19 @@ const Missions: React.FC = () => {
                                         </DropdownMenuContent>
                                     </DropdownMenu>
 
-                                    <Button data-tour-id="send-button" type="submit" size="icon" className="h-8 w-8 ml-1" disabled={isLoading || (!isTourActive && !input.trim() && attachments.length === 0)}>
+                                    <Button 
+                                        data-tour-id="send-button" 
+                                        type="submit" 
+                                        size="icon" 
+                                        className={cn(
+                                            "h-8 w-8 rounded-lg transition-all duration-200",
+                                            isLoading || (!isTourActive && !input.trim() && attachments.length === 0)
+                                                ? "bg-muted text-muted-foreground cursor-not-allowed"
+                                                : "bg-primary hover:bg-primary/90 text-white shadow-sm hover:shadow-md hover:scale-105"
+                                        )}
+                                        disabled={isLoading || (!isTourActive && !input.trim() && attachments.length === 0)}
+                                        title="Enviar mensaje"
+                                    >
                                         <span className="material-symbols-outlined text-base">arrow_upward</span>
                                     </Button>
                                 </div>
