@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>GrantsWin.AI</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
+    <script>
+      // On page load or when changing themes, best to add inline in `head` to avoid FOUC
+      if (localStorage.getItem('theme') === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+        document.documentElement.classList.add('dark')
+      } else {
+        document.documentElement.classList.remove('dark')
+      }
+
+      tailwind.config = {
+        darkMode: 'class',
+        theme: {
+          extend: {
+            colors: {
+              primary: { "50": "#FCECF6", "100": "#F7CFE6", "200": "#EFA1CF", "300": "#E072B6", "400": "#D052A5", "500": "#B84E9D", "600": "#9C3C86", "700": "#7F2E6D", "800": "#5F2051", "900": "#3F1335", "950": "#250A20", DEFAULT: "#B84E9D" },
+              secondary: { "50": "#ECEFF4", "100": "#CBD4E0", "200": "#A3AEC2", "300": "#7A879F", "400": "#53617B", "500": "#2A3B5A", "600": "#223149", "700": "#1B273B", "800": "#131B29", "900": "#0B1018", "950": "#06090D", DEFAULT: "#2A3B5A" },
+              tertiary: { "50": "#F3FAEB", "100": "#E0F1D0", "200": "#C4E3A6", "300": "#A8D57D", "400": "#8DC857", "500": "#A3CC71", "600": "#7FB348", "700": "#5E8C35", "800": "#426526", "900": "#294016", "950": "#16230B", DEFAULT: "#A3CC71" },
+              quaternary: { "50": "#FAFDF7", "100": "#F2F9E9", "200": "#E6F1D5", "300": "#D4E5BD", "400": "#B4C89F", "500": "#98AC82", "600": "#758A63", "700": "#566949", "800": "#394730", "900": "#1D2418", "950": "#0D100A", DEFAULT: "#D4E5BD" },
+              quinary: { "50": "#F9F6F8", "100": "#F0E6EA", "200": "#DFCCD5", "300": "#C9B0B8", "400": "#AA8C97", "500": "#8B6B77", "600": "#6E5560", "700": "#544048", "800": "#392B32", "900": "#20181D", "950": "#0E0A0D", DEFAULT: "#C9B0B8" },
+              senary: { "50": "#F4F0FE", "100": "#E2D8FD", "200": "#C7B4FB", "300": "#AA8FF9", "400": "#8D6AF6", "500": "#815BEF", "600": "#633ECC", "700": "#4A2D9B", "800": "#331F6D", "900": "#1E123F", "950": "#0D071A", DEFAULT: "#815BEF" },
+              septenary: { "50": "#F6FDEB", "100": "#E6FBC7", "200": "#D1F799", "300": "#B7F06B", "400": "#A0E541", "500": "#89D506", "600": "#6FA804", "700": "#567C03", "800": "#3A5201", "900": "#212E00", "950": "#101600", DEFAULT: "#89D506" },
+              octonary: { "50": "#EFFBF6", "100": "#D3F3E5", "200": "#AEE6D1", "300": "#89D9BA", "400": "#65CFA7", "500": "#71CB99", "600": "#4BAE7C", "700": "#368A61", "800": "#256246", "900": "#15382A", "950": "#0A1C14", DEFAULT: "#71CB99" },
+              nonary: { "50": "#E9EEFC", "100": "#C6D3F8", "200": "#94ADF3", "300": "#6187ED", "400": "#3D68E5", "500": "#2A55D2", "600": "#2142A6", "700": "#192F79", "800": "#101D4D", "900": "#070E25", "950": "#030611", DEFAULT: "#2A55D2" },
+              decenary: { "50": "#F0ECFA", "100": "#D8CFF5", "200": "#B49FEA", "300": "#8D6AE0", "400": "#5F3BD1", "500": "#301889", "600": "#25126D", "700": "#1C0D52", "800": "#120936", "900": "#09041C", "950": "#04020B", DEFAULT: "#301889" },
+              undecenary: { "50": "#F5F1FD", "100": "#E6DBFB", "200": "#CBB7F7", "300": "#AF91F2", "400": "#926CEB", "500": "#7042D9", "600": "#5A33B1", "700": "#442786", "800": "#2F1A5A", "900": "#1A0E2F", "950": "#0C0514", DEFAULT: "#7042D9" },
+              duodenary: { "50": "#E9FCF6", "100": "#C1F7E6", "200": "#92F1D4", "300": "#62EAC2", "400": "#38E4B1", "500": "#4BEDB1", "600": "#2FB38A", "700": "#228066", "800": "#155844", "900": "#0A3024", "950": "#041612", DEFAULT: "#4BEDB1" },
+              neutral: { '50': '#fafafa', '100': '#f5f5f5', '200': '#e5e5e5', '300': '#d4d4d4', '400': '#a3a3a3', '500': '#737373', '600': '#525252', '700': '#404040', '800': '#262626', '900': '#171717', '950': '#0a0a0a' },
+              border: 'hsl(var(--border))',
+              input: 'hsl(var(--input))',
+              ring: 'hsl(var(--ring))',
+              background: 'hsl(var(--background))',
+              foreground: 'hsl(var(--foreground))',
+              brand: {
+                DEFAULT: 'hsl(var(--brand-button))',
+                foreground: 'hsl(var(--brand-button-foreground))',
+              },
+              primary_semantic: {
+                DEFAULT: 'hsl(var(--primary))',
+                foreground: 'hsl(var(--primary-foreground))',
+              },
+              secondary_semantic: {
+                DEFAULT: 'hsl(var(--secondary))',
+                foreground: 'hsl(var(--secondary-foreground))',
+              },
+              destructive: {
+                DEFAULT: 'hsl(var(--destructive))',
+                foreground: 'hsl(var(--destructive-foreground))',
+                '50': '#fef2f2', '100': '#fee2e2', '200': '#fecaca', '300': '#fca5a5', '400': '#f87171', '500': '#ef4444', '600': '#dc2626', '700': '#b91c1c', '800': '#991b1b', '900': '#7f1d1d', '950': '#450a0a',
+              },
+              muted: {
+                DEFAULT: 'hsl(var(--muted))',
+                foreground: 'hsl(var(--muted-foreground))',
+              },
+              accent: {
+                DEFAULT: 'hsl(var(--accent))',
+                foreground: 'hsl(var(--accent-foreground))',
+              },
+              popover: {
+                DEFAULT: 'hsl(var(--popover))',
+                foreground: 'hsl(var(--popover-foreground))',
+              },
+              card: {
+                DEFAULT: 'hsl(var(--card))',
+                foreground: 'hsl(var(--card-foreground))',
+              },
+            },
+            borderRadius: {
+              lg: '0.625rem',
+              md: 'calc(0.625rem - 2px)',
+              sm: 'calc(0.625rem - 4px)',
+            },
+            fontFamily: {
+              sans: ['Poppins', 'sans-serif'],
+            },
+             keyframes: {
+              "accordion-down": {
+                from: { height: "0" },
+                to: { height: "var(--radix-accordion-content-height)" },
+              },
+              "accordion-up": {
+                from: { height: "var(--radix-accordion-content-height)" },
+                to: { height: "0" },
+              },
+            },
+            animation: {
+              "accordion-down": "accordion-down 0.2s ease-out",
+              "accordion-up": "accordion-up 0.2s ease-out",
+            },
+          },
+        },
+      }
+    </script>
+    <style>
+      :root {
+        --background: 0 0% 98%;
+        --foreground: 222.2 84% 4.9%;
+        --card: 0 0% 100%;
+        --card-foreground: 222.2 84% 4.9%;
+        --popover: 0 0% 100%;
+        --popover-foreground: 222.2 84% 4.9%;
+        --primary: 222.2 47.4% 11.2%;
+        --primary-foreground: 210 40% 98%;
+        --secondary: 210 40% 96.1%;
+        --secondary-foreground: 222.2 47.4% 11.2%;
+        --muted: 210 40% 96.1%;
+        --muted-foreground: 215.4 16.3% 46.9%;
+        --accent: 210 40% 96.1%;
+        --accent-foreground: 222.2 47.4% 11.2%;
+        --destructive: 0 72% 51%;
+        --destructive-foreground: 210 40% 98%;
+        --border: 214.3 31.8% 91.4%;
+        --input: 214.3 31.8% 91.4%;
+        --ring: 222.2 84% 4.9%;
+        --brand-button: 316 46% 42%;
+        --brand-button-foreground: 210 40% 98%;
+      }
+      
+      .dark {
+        --background: 222.2 84% 4.9%;
+        --foreground: 210 40% 98%;
+        --card: 0 0% 9%;
+        --card-foreground: 210 40% 98%;
+        --popover: 0 0% 9%;
+        --popover-foreground: 210 40% 98%;
+        --primary: 210 40% 98%;
+        --primary-foreground: 222.2 47.4% 11.2%;
+        --secondary: 217.2 32.6% 17.5%;
+        --secondary-foreground: 210 40% 98%;
+        --muted: 217.2 32.6% 17.5%;
+        --muted-foreground: 215 20.2% 65.1%;
+        --accent: 217.2 32.6% 17.5%;
+        --accent-foreground: 210 40% 98%;
+        --destructive: 0 62.8% 30.6%;
+        --destructive-foreground: 210 40% 98%;
+        --border: 217.2 32.6% 17.5%;
+        --input: 217.2 32.6% 17.5%;
+        --ring: 212.7 26.8% 83.9%;
+        --brand-button: 328 62% 57%;
+        --brand-button-foreground: 328 100% 10%;
+      }
+
+      body {
+        font-family: 'Poppins', sans-serif;
+        background-color: hsl(var(--background));
+        color: hsl(var(--foreground));
+      }
+      .material-symbols-outlined {
+        font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+      }
+    </style>
+<link rel="stylesheet" href="/index.css">
+</head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/index.tsx"></script>
+  </body>
+</html>
