@@ -21,12 +21,41 @@ export async function validateGrant(params: any) {
         const companyProfile = params.companyProfile || params.company_profile || {};
         const projectDetails = params.projectDetails || params.project_details || {};
         
-        // Si projectDetails viene como projectContext (string), intentar parsearlo o usarlo como description
-        if (!projectDetails.title && !projectDetails.description && params.projectContext) {
+        // Extraer información del proyecto desde múltiples fuentes posibles
+        // Aceptar projectContext como string o objeto
+        if (params.projectContext) {
             if (typeof params.projectContext === 'string') {
-                projectDetails.description = params.projectContext;
-            } else if (params.projectContext.title || params.projectContext.description) {
-                Object.assign(projectDetails, params.projectContext);
+                // Si es un string, usarlo como descripción
+                if (!projectDetails.description) {
+                    projectDetails.description = params.projectContext;
+                }
+                // Intentar extraer título del string si tiene formato "Título: ..." o similar
+                const titleMatch = params.projectContext.match(/^(?:#+\s*)?([^\n]+?)(?:\n|$)/);
+                if (titleMatch && titleMatch[1] && titleMatch[1].length < 200) {
+                    projectDetails.title = projectDetails.title || titleMatch[1].trim();
+                }
+            } else if (typeof params.projectContext === 'object') {
+                // Si es un objeto, copiar sus propiedades
+                if (params.projectContext.title || params.projectContext.description) {
+                    Object.assign(projectDetails, params.projectContext);
+                }
+            }
+        }
+        
+        // También aceptar projectName como título
+        if (!projectDetails.title && (params.projectName || params.project_name)) {
+            projectDetails.title = params.projectName || params.project_name;
+        }
+        
+        // Si hay descripción pero no título, intentar extraer título de la descripción
+        if (projectDetails.description && !projectDetails.title) {
+            const descLines = projectDetails.description.split('\n').filter(line => line.trim().length > 0);
+            if (descLines.length > 0) {
+                const firstLine = descLines[0].trim();
+                // Si la primera línea parece un título (corta, sin punto al final, etc.)
+                if (firstLine.length < 150 && !firstLine.endsWith('.') && !firstLine.endsWith(',')) {
+                    projectDetails.title = firstLine;
+                }
             }
         }
         
@@ -80,7 +109,9 @@ export async function validateGrant(params: any) {
         // 4. Validar que haya nombre de la convocatoria (recomendado pero no obligatorio)
         // Nota: Si no se proporciona, el análisis será menos preciso pero continuará
 
-        const hasProject = projectDetails?.title && projectDetails?.description;
+        // Detección flexible de proyecto: aceptar si hay descripción O título (no requiere ambos)
+        const hasProject = (projectDetails?.description && projectDetails.description.trim().length > 0) || 
+                          (projectDetails?.title && projectDetails.title.trim().length > 0);
         const hasCompanyProfile = companyProfile?.name && companyProfile?.businessSummary;
 
         const summarySchema = {
@@ -210,6 +241,17 @@ export async function validateGrant(params: any) {
             consultantInstruction = `
                 - **STRATEGIC IMPROVEMENT:** If the score is below 100, act as a Consultant. Identify the main 'keyGap'. Then provide 'suggestedModifications' to close this gap. Calculate the 'projectedScore' (0-100 scale) if these changes are applied.
             `;
+            
+            // Asegurar que tenemos al menos un título o descripción para el prompt
+            if (!projectDetails.title && projectDetails.description) {
+                // Extraer un título potencial de la descripción si no hay uno
+                const firstLine = projectDetails.description.split('\n')[0].trim();
+                if (firstLine.length < 200 && firstLine.length > 0) {
+                    projectDetails.title = firstLine;
+                } else {
+                    projectDetails.title = "Proyecto Descrito";
+                }
+            }
         }
 
         const prompt = `
@@ -223,15 +265,19 @@ export async function validateGrant(params: any) {
 
             **2. PROPOSED ACTION (Specific Project Idea):**
             ${hasProject ? `
-            **CRITICAL: A PROJECT DESCRIPTION HAS BEEN PROVIDED. YOU MUST USE THIS INFORMATION.**
+            **CRITICAL: PROJECT INFORMATION HAS BEEN PROVIDED. YOU MUST USE THIS INFORMATION FOR YOUR ANALYSIS.**
             
-            - Project Title: ${projectDetails.title}
-            - Description: ${projectDetails.description}
-            - Specific Objectives: ${(projectDetails.objectives || []).join(', ')}
+            ${projectDetails.title ? `- Project Title: ${projectDetails.title}` : '- Project Title: (Not provided, but description is available below)'}
+            ${projectDetails.description ? `- Description: ${projectDetails.description}` : ''}
+            ${projectDetails.objectives && projectDetails.objectives.length > 0 ? `- Specific Objectives: ${projectDetails.objectives.join(', ')}` : ''}
             
-            **IMPORTANT:** The project information above is REAL and PROVIDED. You MUST analyze this specific project. 
-            DO NOT say "no project description provided" or "project not defined" - the project is clearly described above.
-            You MUST identify the domain/sector of THIS SPECIFIC PROJECT based on the description provided.
+            **ABSOLUTE REQUIREMENT:** The project information above is REAL and PROVIDED. You MUST analyze this specific project. 
+            - DO NOT say "no project description provided" or "project not defined" - the project IS defined above
+            - DO NOT say "impossible to evaluate" or "cannot evaluate" - you HAVE the information needed
+            - DO NOT give low scores just because you think information is missing - USE the information provided
+            - You MUST identify the domain/sector of THIS SPECIFIC PROJECT based on the description/title provided
+            - If only a description is provided without a title, extract the project domain from the description text
+            - Analyze the project based on what IS provided, not on what might be missing
             ` : 'NO SPECIFIC PROJECT DEFINED. Evaluate based purely on the APPLICANT ENTITY capabilities.'}
 
             **3. GRANT OPPORTUNITY (The Call):**
@@ -246,11 +292,16 @@ export async function validateGrant(params: any) {
             
             **READ THE PROJECT INFORMATION PROVIDED ABOVE CAREFULLY.**
             ${hasProject ? `
-            The project information is:
-            - Title: "${projectDetails.title}"
-            - Description: "${projectDetails.description}"
+            The project information provided is:
+            ${projectDetails.title ? `- Title: "${projectDetails.title}"` : '- Title: (Not provided, but description available)'}
+            ${projectDetails.description ? `- Description: "${projectDetails.description}"` : ''}
             
-            YOU MUST identify the PRIMARY DOMAIN of THIS SPECIFIC PROJECT based on the description above.
+            **YOU MUST identify the PRIMARY DOMAIN of THIS SPECIFIC PROJECT based on the information provided above.**
+            - If you have a title, use it to identify the domain
+            - If you have a description, analyze it to identify the domain
+            - If you have both, use both to identify the domain
+            - DO NOT say the domain is unknown or cannot be determined - you MUST extract it from the provided information
+            - Look for keywords, sector mentions, application areas, target users, and core business domain in the provided text
             ` : 'Since no specific project is provided, evaluate based on applicant entity capabilities.'}
             
             - To identify the project domain, analyze the project description for:
@@ -330,14 +381,22 @@ export async function validateGrant(params: any) {
             
             **ABSOLUTE REQUIREMENTS:**
             ${hasProject ? `
-            - YOU HAVE BEEN PROVIDED WITH PROJECT INFORMATION ABOVE (Title: "${projectDetails.title}", Description: "${projectDetails.description}")
-            - YOU MUST USE THIS PROJECT INFORMATION in your analysis
+            - YOU HAVE BEEN PROVIDED WITH PROJECT INFORMATION ABOVE
+            ${projectDetails.title ? `  * Title: "${projectDetails.title}"` : '  * Title: Extracted from description or not explicitly provided'}
+            ${projectDetails.description ? `  * Description: "${projectDetails.description.substring(0, 1000)}${projectDetails.description.length > 1000 ? '...' : ''}"` : ''}
+            - YOU MUST USE THIS PROJECT INFORMATION in your analysis - it is REAL and AVAILABLE
             - DO NOT say "no project description provided" or "project not defined" - the project IS defined above
-            - YOU MUST identify the domain of THIS SPECIFIC PROJECT based on the description provided
-            - If you cannot determine the domain from the description, analyze the keywords and context carefully
+            - DO NOT say "impossible to evaluate" or "cannot evaluate" - you HAVE sufficient information
+            - DO NOT give scores of 0-10 just because you think information is missing - USE what is provided
+            - YOU MUST identify the domain of THIS SPECIFIC PROJECT based on the information provided
+            - If you have a description, extract the domain from it (look for sector, industry, application area, target users)
+            - If you have a title, use it to identify the domain
+            - Analyze keywords, context, and meaning in the provided text to determine the project domain
+            - Base your evaluation on the ACTUAL project information provided, not on assumptions about what might be missing
             ` : ''}
             - Always base your reasoning on the ACTUAL information provided, not on assumptions about missing data
-            - If project information is provided, you MUST reference it in your reasoning for each criterion
+            - If project information is provided, you MUST reference it explicitly in your reasoning for each criterion
+            - Give realistic scores based on the information available - do not penalize for information that was not required
             
             **CRITICAL EXAMPLES TO FOLLOW:**
             
@@ -439,18 +498,24 @@ export async function validateGrant(params: any) {
                     'no se ha proporcionado', 'no se proporcionó', 'no provided', 'not provided',
                     'ausencia de', 'falta de', 'missing', 'no description', 'sin descripción',
                     'no project', 'proyecto no definido', 'project not defined', 'no se ha definido',
-                    'imposible evaluar', 'cannot evaluate', 'no puede evaluar'
+                    'imposible evaluar', 'cannot evaluate', 'no puede evaluar', 'insufficient information',
+                    'información insuficiente', 'no information', 'sin información'
                 ];
                 
                 const saysMissingInfo = missingInfoKeywords.some(keyword => allText.includes(keyword));
                 
                 if (saysMissingInfo) {
-                    // El modelo dice que falta información pero está disponible - esto es un error
-                    // Si el overall score es muy bajo (<30) y el modelo dice que falta info, probablemente es por este error
-                    if (overallScore < 30) {
-                        // No ajustar automáticamente, pero agregar advertencia
+                    // El modelo dice que falta información pero está disponible - esto es un error crítico
+                    // Si el overall score es muy bajo (<40) y el modelo dice que falta info, es probablemente un error
+                    if (overallScore < 40) {
+                        // Agregar advertencia clara
                         result.analysis.justification = (result.analysis.justification || '') + 
-                            ' [ADVERTENCIA: El modelo indicó que falta información del proyecto, pero la información fue proporcionada. Los scores pueden ser incorrectos.]';
+                            ' [ADVERTENCIA CRÍTICA: El modelo indicó que falta información del proyecto, pero la información SÍ fue proporcionada. Los scores pueden estar incorrectamente bajos debido a este error de interpretación. Por favor, revise el análisis considerando que la información del proyecto está disponible.]';
+                        
+                        // Si el score es extremadamente bajo (<20) y hay información del proyecto, sugerir reevaluación
+                        if (overallScore < 20) {
+                            result.analysis.justification += ' [SUGERENCIA: Dado que hay información del proyecto disponible, considere que los scores pueden necesitar ajuste manual.]';
+                        }
                     }
                 }
             }

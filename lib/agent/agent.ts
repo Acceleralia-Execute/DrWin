@@ -52,11 +52,12 @@ const TOOLS = [
     },
     {
         name: 'validateGrant',
-        description: 'Validar elegibilidad y compatibilidad de un proyecto con una convocatoria específica. Evalúa criterios y proporciona puntuación. REQUIERE la URL de la convocatoria (grantUrl). Puedes obtener la URL de los resultados de searchOpportunities.',
+        description: 'Validar elegibilidad y compatibilidad de un proyecto con una convocatoria específica. Evalúa criterios y proporciona puntuación. REQUIERE la URL de la convocatoria (grantUrl). IMPORTANTE: Si el usuario ha mencionado su proyecto anteriormente en la conversación, DEBES extraer esa información del historial y pasarla en projectDetails o projectContext para que la validación sea precisa. Puedes obtener la URL de los resultados de searchOpportunities.',
         parameters: {
             type: 'object',
             properties: {
                 grantUrl: { type: 'string', description: 'URL completa de la convocatoria (obligatorio). Ejemplo: https://www.infosubvenciones.es/bdnstrans/GE/es/convocatorias/808821' },
+                projectContext: { type: 'string', description: 'Descripción completa del proyecto como texto plano. Úsalo si no tienes projectDetails estructurado. Extrae esta información del historial de conversación si el usuario mencionó su proyecto anteriormente.' },
                 companyProfile: {
                     type: 'object',
                     properties: {
@@ -65,15 +66,17 @@ const TOOLS = [
                         sector: { type: 'string' },
                         services: { type: 'array', items: { type: 'string' } },
                         keywords: { type: 'array', items: { type: 'string' } }
-                    }
+                    },
+                    description: 'Perfil de la empresa. Extrae esta información del historial si está disponible.'
                 },
                 projectDetails: {
                     type: 'object',
                     properties: {
-                        title: { type: 'string' },
-                        description: { type: 'string' },
-                        objectives: { type: 'array', items: { type: 'string' } }
-                    }
+                        title: { type: 'string', description: 'Título del proyecto. Extrae del historial si el usuario lo mencionó.' },
+                        description: { type: 'string', description: 'Descripción detallada del proyecto. CRÍTICO: Extrae del historial si está disponible.' },
+                        objectives: { type: 'array', items: { type: 'string' }, description: 'Objetivos del proyecto. Extrae del historial si están disponibles.' }
+                    },
+                    description: 'Detalles del proyecto a validar. CRÍTICO: Si el usuario mencionó su proyecto anteriormente, DEBES extraer esta información del historial de conversación y pasarla aquí.'
                 }
             },
             required: ['grantUrl']
@@ -94,7 +97,7 @@ const TOOLS = [
     },
     {
         name: 'generateConcept',
-        description: 'Generar concepto de proyecto completo incluyendo idea, objetivos, socios potenciales y paquetes de trabajo. Acepta grantContext como string o objeto. Si falta información, usa valores por defecto razonables.',
+        description: 'Generar concepto de proyecto completo incluyendo idea, objetivos, socios potenciales y paquetes de trabajo. USA ESTA HERRAMIENTA cuando el usuario confirme que está listo para generar el concepto (ej: "sí estoy listo", "adelante", "procede"). Extrae información del historial de conversación: título del proyecto, descripción, objetivos, y contexto de la convocatoria si se validó anteriormente. Acepta grantContext como string o objeto. Si falta información, usa valores por defecto razonables basados en el contexto disponible.',
         parameters: {
             type: 'object',
             properties: {
@@ -564,6 +567,22 @@ IMPORTANTE:
 - Si falta información para algún parámetro, usa valores por defecto razonables o pregunta al usuario
 - Después de ejecutar la herramienta, recibirás el resultado y deberás explicarlo al usuario de forma clara y estructurada usando markdown
 
+**ESPECIALMENTE PARA generateConcept:**
+- Cuando el usuario confirme que está listo (dice "sí estoy listo", "estoy listo", "adelante", "procede", "ok", "sí", "si", "de acuerdo", "perfecto", "vamos", etc.), DEBES llamar INMEDIATAMENTE a generateConcept
+- NO solo digas que vas a comunicarte con Inventa - DEBES incluir el bloque de código \`\`\`tool con la llamada real
+- Extrae la información del historial de conversación (título del proyecto, descripción, contexto de convocatoria) y pásala en los parámetros
+- Ejemplo cuando el usuario dice "sí estoy listo":
+\`\`\`tool
+{
+  "tool": "generateConcept",
+  "params": {
+    "grantContext": "información de la convocatoria del historial",
+    "projectTitle": "título del proyecto del historial",
+    "projectDescription": "descripción del proyecto del historial"
+  }
+}
+\`\`\`
+
 ${historyText ? `\n## Historial de Conversación\n${historyText}\n` : ''}
 
 ## Mensaje del Usuario
@@ -631,7 +650,7 @@ ${userMessage}`;
         // Formato 4: Buscar por nombre de herramienta seguido de parámetros
         if (toolCalls.length === 0) {
             for (const tool of TOOLS) {
-                const toolNameRegex = new RegExp(`(?:usar|ejecutar|llamar)\\s+(?:la\\s+)?(?:herramienta\\s+)?${tool.name}`, 'i');
+                const toolNameRegex = new RegExp(`(?:usar|ejecutar|llamar|comunicar|generar|crear)\\s+(?:la\\s+)?(?:herramienta\\s+)?(?:con\\s+)?${tool.name}`, 'i');
                 if (toolNameRegex.test(responseText)) {
                     // Intentar extraer parámetros del contexto
                     const paramsMatch = responseText.match(/\{[\s\S]*?\}/);
@@ -648,6 +667,25 @@ ${userMessage}`;
                     }
                     break;
                 }
+            }
+        }
+
+        // Formato 5: Buscar menciones específicas de Inventa/Create cuando el usuario confirma
+        if (toolCalls.length === 0) {
+            const inventaMentions = /(?:comunicar|hablar|contactar|llamar).*?(?:con|a).*?Inventa|Inventa.*?(?:para|a|de).*?(?:generar|crear|trabajar)|generar.*?concepto|crear.*?concepto|concepto.*?proyecto/i;
+            if (inventaMentions.test(responseText) && responseText.toLowerCase().includes('generateConcept') === false) {
+                // Si menciona Inventa pero no hay tool call, intentar crear uno
+                const paramsMatch = responseText.match(/\{[\s\S]*?\}/);
+                let params = {};
+                if (paramsMatch) {
+                    try {
+                        params = JSON.parse(paramsMatch[0]);
+                    } catch (e) {
+                        // Si no es JSON válido, crear parámetros básicos vacíos
+                        params = {};
+                    }
+                }
+                toolCalls.push({ tool: 'generateConcept', params });
             }
         }
 

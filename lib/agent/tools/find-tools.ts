@@ -4,9 +4,11 @@
  */
 
 import { SearchOpportunitiesParams, ValidateGrantParams, CompareGrantsParams } from '../types';
+import { GoogleGenAI } from '@google/genai';
 
 const PROXY_URL = 'https://corsproxy.io/?';
 const globalCache = new Map();
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 // Helper functions
 async function fetchWithRetry(url: string, options: any = {}, maxRetries = 3, responseType = 'json', customCacheKey?: string) {
@@ -40,99 +42,138 @@ const getTimestampFromDate = (dateString: string): number | null => !dateString 
 const getEndOfDayTimestamp = (dateString: string): number | null => !dateString ? null : new Date(dateString + 'T23:59:59').getTime();
 
 /**
- * Traducir keywords del español al inglés para búsquedas en European Commission API
- * La API busca en documentos en inglés, por lo que necesitamos traducir las keywords
+ * Usar LLM para traducir keywords del español al inglés de forma genérica
+ * La API de European Commission busca en documentos en inglés
  */
-function translateKeywordsToEnglish(keywords: string[]): string[] {
-    // Diccionario de traducciones comunes español -> inglés
-    const translationMap: Record<string, string> = {
-        // Términos de tecnología
-        'blockchain': 'blockchain',
-        'tecnología financiera': 'financial technology',
-        'fintech': 'financial technology',
-        'innovación tecnológica': 'technological innovation',
-        'innovación': 'innovation',
-        'tecnología': 'technology',
-        'digitalización': 'digitalization',
-        'transformación digital': 'digital transformation',
-        'inteligencia artificial': 'artificial intelligence',
-        'ia': 'artificial intelligence',
-        'aprendizaje automático': 'machine learning',
-        'aprendizaje profundo': 'deep learning',
-        'big data': 'big data',
-        'ciencia de datos': 'data science',
-        'análisis de datos': 'data analytics',
-        
-        // Términos de sostenibilidad
-        'sostenibilidad': 'sustainability',
-        'cambio climático': 'climate change',
-        'energía renovable': 'renewable energy',
-        'energías renovables': 'renewable energy',
-        'economía circular': 'circular economy',
-        'tecnología verde': 'green technology',
-        'medio ambiente': 'environment',
-        'medioambiental': 'environmental',
-        'eficiencia energética': 'energy efficiency',
-        
-        // Términos generales
-        'investigación y desarrollo': 'research and development',
-        'i+d': 'research and development',
-        'i+d+i': 'research and development innovation',
-        'desarrollo': 'development',
-        'investigación': 'research',
-        'proyecto': 'project',
-        'proyectos': 'projects',
-        
-        // Términos de financiación
-        'subvención': 'grant',
-        'subvenciones': 'grants',
-        'financiación': 'funding',
-        'ayuda': 'aid',
-        'convocatoria': 'call',
-        'convocatorias': 'calls',
-    };
-    
-    // Detectar si hay palabras en español (con acentos o palabras conocidas)
-    const spanishIndicators = /[ñáéíóúüÑÁÉÍÓÚÜ]|tecnología|innovación|financiera|nacional|internacional|sostenibilidad|energía/i;
-    const hasSpanish = keywords.some(kw => 
-        spanishIndicators.test(kw) ||
-        Object.keys(translationMap).some(spanishTerm => 
-            kw.toLowerCase().includes(spanishTerm.toLowerCase())
-        )
-    );
+async function translateKeywordsToEnglish(keywords: string[]): Promise<string[]> {
+    // Detectar si hay palabras en español (con acentos o caracteres especiales)
+    const spanishIndicators = /[ñáéíóúüÑÁÉÍÓÚÜ]/;
+    const hasSpanish = keywords.some(kw => spanishIndicators.test(kw));
     
     if (!hasSpanish) {
         // No parece haber español, devolver keywords originales
         return keywords;
     }
     
-    // Traducir keywords
-    return keywords.map(kw => {
-        const lower = kw.toLowerCase().trim();
+    try {
+        const prompt = `Translate the following keywords/phrases from Spanish to English. 
+Return ONLY a JSON array of strings with the English translations, maintaining the same order.
+If a keyword is already in English, return it unchanged.
+Do not add explanations, only return the JSON array.
+
+Keywords to translate:
+${keywords.map((kw, i) => `${i + 1}. ${kw}`).join('\n')}
+
+Return format: ["translated1", "translated2", ...]`;
+
+        const response = await ai.models.generateContent({
+            model: "gemini-2.5-flash",
+            contents: prompt,
+            config: {
+                maxOutputTokens: 500,
+            },
+        });
+
+        // Validar que la respuesta tenga texto
+        if (!response || !response.text) {
+            console.warn('LLM response missing text property, using original keywords');
+            return keywords;
+        }
+
+        const responseText = response.text.trim();
         
-        // Buscar traducción exacta primero
-        if (translationMap[lower]) {
-            return translationMap[lower];
+        if (!responseText) {
+            console.warn('LLM response text is empty, using original keywords');
+            return keywords;
         }
         
-        // Buscar si contiene alguna palabra del diccionario y reemplazar
-        let translated = kw;
-        let wasTranslated = false;
-        
-        // Ordenar por longitud descendente para reemplazar frases completas primero
-        const sortedEntries = Object.entries(translationMap).sort((a, b) => b[0].length - a[0].length);
-        
-        for (const [spanish, english] of sortedEntries) {
-            const regex = new RegExp(`\\b${spanish.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'gi');
-            if (regex.test(lower)) {
-                translated = translated.replace(regex, english);
-                wasTranslated = true;
+        // Extraer JSON de la respuesta
+        const jsonMatch = responseText.match(/\[[\s\S]*\]/);
+        if (jsonMatch) {
+            try {
+                const translated = JSON.parse(jsonMatch[0]);
+                if (Array.isArray(translated) && translated.length === keywords.length) {
+                    return translated;
+                }
+            } catch (parseError) {
+                console.warn('Failed to parse translation JSON:', parseError);
             }
         }
         
-        // Si se tradujo algo, devolver la traducción; si no, dejar original
-        return wasTranslated ? translated : kw;
-    });
+        // Si falla el parsing, devolver originales
+        console.warn('Failed to parse translation response, using original keywords');
+        return keywords;
+    } catch (error) {
+        console.error('Error translating keywords with LLM:', error);
+        // En caso de error, devolver keywords originales
+        return keywords;
+    }
+}
+
+/**
+ * Usar LLM para expandir keywords con sinónimos y términos relacionados de forma genérica
+ * Esto mejora la búsqueda semántica sin sesgar hacia casos específicos
+ */
+async function expandKeywordsWithLLM(keywords: string[]): Promise<string[]> {
+    try {
+        const prompt = `Given these keywords related to a project, generate a list of related terms, synonyms, and semantically related keywords that would help find relevant funding opportunities.
+Return ONLY a JSON array of strings with the expanded keywords.
+Include:
+- Synonyms and alternative terms
+- Related technical terms
+- Broader and narrower concepts
+- Terms commonly used in funding calls for similar projects
+Do not add explanations, only return the JSON array.
+
+Original keywords:
+${keywords.map((kw, i) => `${i + 1}. ${kw}`).join('\n')}
+
+Return format: ["keyword1", "keyword2", "related_term1", "synonym1", ...]`;
+
+        const response = await ai.models.generateContent({
+            model: "gemini-2.5-flash",
+            contents: prompt,
+            config: {
+                maxOutputTokens: 1000,
+            },
+        });
+
+        // Validar que la respuesta tenga texto
+        if (!response || !response.text) {
+            console.warn('LLM response missing text property, no expansion applied');
+            return [];
+        }
+
+        const responseText = response.text.trim();
+        
+        if (!responseText) {
+            console.warn('LLM response text is empty, no expansion applied');
+            return [];
+        }
+        
+        // Extraer JSON de la respuesta
+        const jsonMatch = responseText.match(/\[[\s\S]*\]/);
+        if (jsonMatch) {
+            try {
+                const expanded = JSON.parse(jsonMatch[0]);
+                if (Array.isArray(expanded) && expanded.length > 0) {
+                    // Devolver solo keywords expandidas (sin las originales)
+                    // Las originales ya están en keywordsArray para el ranking
+                    return expanded.filter((kw: string) => kw && typeof kw === 'string' && kw.trim().length > 0);
+                }
+            } catch (parseError) {
+                console.warn('Failed to parse expansion JSON:', parseError);
+            }
+        }
+        
+        // Si falla el parsing, devolver array vacío (no expandir)
+        console.warn('Failed to parse keyword expansion response, no expansion applied');
+        return [];
+    } catch (error) {
+        console.error('Error expanding keywords with LLM:', error);
+        // En caso de error, devolver keywords originales
+        return keywords;
+    }
 }
 
 const rankResults = (results: any[], keywords: string[], titleFields: string[], descriptionFields: string[]): any[] => {
@@ -432,10 +473,36 @@ async function searchEuropeanGrants(keywords: string[] | string, start?: string,
         
         if (keywordsArray.length === 0) return [];
         
-        // MEJORADO: Traducir keywords del español al inglés para la API de European Commission
-        // La API busca en documentos en inglés, por lo que necesitamos keywords en inglés
+        // Guardar keywords originales para el ranking
         const originalKeywords = [...keywordsArray];
-        keywordsArray = translateKeywordsToEnglish(keywordsArray);
+        
+        // MEJORADO: Usar LLM para traducir keywords del español al inglés
+        // La API busca en documentos en inglés, por lo que necesitamos keywords en inglés
+        // Si falla, usar keywords originales
+        let translatedKeywords: string[];
+        try {
+            translatedKeywords = await translateKeywordsToEnglish(keywordsArray);
+        } catch (error) {
+            console.warn('Error translating keywords, using originals:', error);
+            translatedKeywords = keywordsArray;
+        }
+        
+        // MEJORADO: Expandir keywords con sinónimos y términos relacionados usando LLM
+        // Esto mejora la búsqueda semántica de forma genérica
+        // Si falla, usar solo keywords traducidas
+        let expandedKeywords: string[];
+        try {
+            expandedKeywords = await expandKeywordsWithLLM(translatedKeywords);
+        } catch (error) {
+            console.warn('Error expanding keywords, using translated only:', error);
+            expandedKeywords = translatedKeywords;
+        }
+        
+        // Usar keywords expandidas para la búsqueda, pero mantener las originales y traducidas para ranking
+        const allKeywordsForSearch = [...new Set([...translatedKeywords, ...expandedKeywords])];
+        
+        // Para el ranking, usar keywords traducidas como principales
+        keywordsArray = translatedKeywords;
         
         const API_URL = "https://api.tech.ec.europa.eu/search-api/prod/rest/search?";
         
@@ -447,8 +514,8 @@ async function searchEuropeanGrants(keywords: string[] | string, start?: string,
         
         const getField = (result: any, fieldName: string) => result[fieldName] || result.metadata?.[fieldName]?.[0];
 
-        // Construct a broad search query (no quotes) to ensure results
-        const searchText = keywordsArray.join(' ');
+        // Construct a broad search query usando keywords expandidas para mejor cobertura
+        const searchText = allKeywordsForSearch.slice(0, 20).join(' '); // Limitar a 20 para evitar queries muy largas
 
         while (hasMoreResults && pageNumber <= maxPages) {
             const formData = new FormData();
@@ -510,9 +577,14 @@ async function searchEuropeanGrants(keywords: string[] | string, start?: string,
                 .replace(/[\u0300-\u036f]/g, ''); // Remover acentos
         };
         
-        // Para el ranking, usar las keywords originales Y traducidas para mejor matching
-        const keywordsForRanking = [...new Set([...originalKeywords, ...keywordsArray])];
+        // MEJORADO: Para el ranking, usar keywords originales, traducidas Y expandidas
+        // Esto permite mejor matching semántico
+        const keywordsForRanking = [...new Set([...originalKeywords, ...keywordsArray, ...expandedKeywords])];
         const lowerKeywords = keywordsForRanking.map(k => normalizeText(k));
+        
+        // Separar keywords principales (originales/traducidas) de expandidas para darles más peso
+        const primaryKeywords = [...new Set([...originalKeywords, ...keywordsArray])].map(k => normalizeText(k));
+        const expandedLowerKeywords = expandedKeywords.filter(k => !keywordsArray.includes(k) && !originalKeywords.includes(k)).map(k => normalizeText(k));
         
         const rankedResults = uniqueResults.map((result: any) => {
             let score = 0;
@@ -525,46 +597,72 @@ async function searchEuropeanGrants(keywords: string[] | string, start?: string,
                 return { ...result, relevanceScore: 0 };
             }
 
-            lowerKeywords.forEach(keyword => {
+            // MEJORADO: Ranking mejorado que da más peso a keywords principales
+            // y considera también keywords expandidas para matching semántico
+            
+            // Primero, buscar coincidencias de keywords principales (más peso)
+            primaryKeywords.forEach(keyword => {
                 let isMatched = false;
-                // Buscar coincidencia (ya todo está normalizado a minúsculas sin acentos)
                 if (titleText.includes(keyword)) { 
-                    score += 10; 
+                    score += 15; // Más peso para keywords principales en título
                     isMatched = true; 
                 }
                 if (descriptionText.includes(keyword)) { 
-                    score += 1; 
+                    score += 2; // Más peso para keywords principales en descripción
                     isMatched = true; 
                 }
                 if (isMatched) { matchedKeywords.add(keyword); }
             });
+            
+            // Luego, buscar coincidencias de keywords expandidas (menos peso pero útil para matching semántico)
+            expandedLowerKeywords.forEach(keyword => {
+                // Solo considerar si no es una keyword principal (evitar duplicados)
+                if (!primaryKeywords.includes(keyword)) {
+                    let isMatched = false;
+                    if (titleText.includes(keyword)) { 
+                        score += 5; // Menos peso para keywords expandidas en título
+                        isMatched = true; 
+                    }
+                    if (descriptionText.includes(keyword)) { 
+                        score += 1; // Menos peso para keywords expandidas en descripción
+                        isMatched = true; 
+                    }
+                    if (isMatched) { matchedKeywords.add(keyword); }
+                }
+            });
     
             const matchCount = matchedKeywords.size;
+            const primaryMatchCount = primaryKeywords.filter(kw => matchedKeywords.has(kw)).length;
             
-            // MEJORADO: Bonus progresivo basado en porcentaje de coincidencias
+            // MEJORADO: Bonus progresivo basado en porcentaje de coincidencias de keywords principales
             // Esto evita penalizar demasiado cuando hay muchas keywords y solo algunas coinciden
-            if (keywordsArray.length > 1 && matchCount > 0) {
-                const matchRatio = matchCount / keywordsArray.length;
-                // Bonus máximo de 1000 si todas coinciden, proporcional si no
+            if (primaryKeywords.length > 1 && primaryMatchCount > 0) {
+                const matchRatio = primaryMatchCount / primaryKeywords.length;
+                // Bonus máximo de 1000 si todas las keywords principales coinciden, proporcional si no
                 const progressiveBonus = Math.round(matchRatio * 1000);
                 score += progressiveBonus;
             }
             
-            // Score base por cada keyword que coincida
-            score += matchCount * 100;
+            // Score base por cada keyword principal que coincida (más peso)
+            score += primaryMatchCount * 150;
+            
+            // Bonus adicional si hay coincidencias de keywords expandidas (matching semántico)
+            const expandedMatchCount = matchCount - primaryMatchCount;
+            if (expandedMatchCount > 0) {
+                score += expandedMatchCount * 50; // Bonus menor pero útil para matching semántico
+            }
     
             return { ...result, relevanceScore: score };
         })
-        // MODIFICADO: Ranking más flexible, especialmente cuando hay pocas keywords
-        // Si la API devolvió resultados, confiar más en su filtrado
+        // MEJORADO: Ranking más inteligente que considera keywords principales y expandidas
         .filter((result: any) => {
-            // Si hay pocas keywords (3 o menos), ser más permisivo
-            // porque es más probable que el resultado sea relevante aunque no coincida exactamente
-            const isFewKeywords = keywordsArray.length <= 3;
+            // Si hay pocas keywords principales (3 o menos), ser más permisivo
+            const isFewKeywords = primaryKeywords.length <= 3;
             
             if (result.relevanceScore === 0) {
                 // Asignar score mínimo basado en si hay pocas o muchas keywords
-                result.relevanceScore = isFewKeywords ? 5 : 1; // Score más alto si hay pocas keywords
+                // Pero ser más conservador que antes
+                result.relevanceScore = isFewKeywords ? 3 : 1;
             }
             
             // Con pocas keywords, ser más permisivo (incluir score >= 0)
