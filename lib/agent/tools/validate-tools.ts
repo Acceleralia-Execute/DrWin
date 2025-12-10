@@ -199,17 +199,23 @@ export async function validateGrant(params: any) {
                 **CRITICAL: Before evaluating, check DOMAIN/SECTOR alignment first.**
                 If the company's sector/domain does NOT match the grant's domain, give low scores (0-30) for Strategic alignment.
                 
-                1. **Domain/Sector alignment (20%):** Does the company's sector match the grant's domain? Score: 0-100.
+                **REQUIRED OUTPUT for 'criteria' array:**
+                You MUST return an array with EXACTLY these 10 criteria objects (weights must sum to 100%):
+                
+                1. **Domain/Sector alignment (18%):** Does the company's sector match the grant's domain? Score: 0-100.
                    - If domains don't match (e.g., company in buildings but grant is about transportation), this MUST be 0-30.
                    - Don't give high scores just because both mention generic technologies (AI, sensors, etc.).
-                2. **Legal eligibility (12%):** Is the entity type valid? Score: 0-100.
-                3. **Strategic alignment (15%):** Does the goal match the Call? Score: 0-100.
-                4. **Technical expertise (15%):** Does the entity have experience in the area? Score: 0-100.
-                5. **Operational capacity (10%):** Resources to execute? Score: 0-100.
-                6. **Past EU experience (8%):** Track record. Score: 0-100.
-                7. **Geographical relevance (8%):** Country/Region value. Score: 0-100.
-                8. **Role potential (7%):** Can they take a valuable role? Score: 0-100.
-                9. **Funding viability (5%):** Funding rate fit. Score: 0-100.
+                2. **Legal eligibility (12%):** Is the entity type valid? Does it meet legal requirements (entity type, country, size, etc.)? Score: 0-100.
+                3. **Strategic alignment (15%):** Does the goal match the Call? Does the project align with the grant's objectives and priorities? Score: 0-100.
+                4. **Technical expertise (15%):** Does the entity have experience in the area? Relevant technical skills, knowledge, and track record? Score: 0-100.
+                5. **Operational capacity (10%):** Resources to execute? Does the entity have the necessary infrastructure, personnel, and resources? Score: 0-100.
+                6. **Past EU experience (8%):** Track record. Has the entity participated in EU-funded projects before? Score: 0-100.
+                7. **Geographical relevance (8%):** Country/Region value. Does the entity's location add value to the consortium? Score: 0-100.
+                8. **Role potential (7%):** Can they take a valuable role? What role can they play in the consortium? Score: 0-100.
+                9. **Funding viability (5%):** Funding rate fit. Can the entity manage the funding rate and co-financing requirements? Score: 0-100.
+                10. **Innovation / Impact (2%):** Innovation potential and expected impact. Does the project/proposal show innovation and potential for significant impact? Score: 0-100.
+                
+                **IMPORTANT:** Each criterion must be evaluated independently and thoroughly. All 10 criteria must be included in the response.
             `;
         } else {
             applicantSection = `

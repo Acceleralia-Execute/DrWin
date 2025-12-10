@@ -11,6 +11,7 @@ import * as findTools from './tools/find-tools';
 import * as validateTools from './tools/validate-tools';
 import * as createTools from './tools/create-tools';
 import * as readaptTools from './tools/readapt-tools';
+import * as documentAnalysisTools from './tools/document-analysis-tools';
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
@@ -18,14 +19,23 @@ const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 const TOOLS = [
     {
         name: 'searchOpportunities',
-        description: 'Buscar oportunidades de financiación (subvenciones nacionales, internacionales, licitaciones) basándose en palabras clave y filtros. IMPORTANTE: Si el usuario solicita "solo internacionales" o "solo europeas", establecer nationalSubsidies: false y internationalSubsidies: true. Si solicita "solo nacionales", establecer nationalSubsidies: true e internationalSubsidies: false.',
+        description: 'Buscar oportunidades de financiación (subvenciones nacionales, internacionales, licitaciones) basándose en palabras clave y filtros. Puede recibir keywords directamente o un archivo PDF/DOCX del cual extraerá keywords automáticamente. IMPORTANTE: Si el usuario solicita "solo internacionales" o "solo europeas", establecer nationalSubsidies: false y internationalSubsidies: true. Si solicita "solo nacionales", establecer nationalSubsidies: true e internationalSubsidies: false.',
         parameters: {
             type: 'object',
             properties: {
                 keywords: {
                     type: 'array',
                     items: { type: 'string' },
-                    description: 'Palabras clave para la búsqueda'
+                    description: 'Palabras clave para la búsqueda. Si no se proporcionan, se extraerán de documentFile si está disponible.'
+                },
+                documentFile: {
+                    type: 'string',
+                    description: 'Base64 del archivo PDF o DOCX del cual extraer keywords para la búsqueda. Si se proporciona y no hay keywords, se extraerán automáticamente del documento.'
+                },
+                fileType: {
+                    type: 'string',
+                    enum: ['pdf', 'docx'],
+                    description: 'Tipo de archivo si se proporciona documentFile'
                 },
                 fundingTypes: {
                     type: 'object',
@@ -47,7 +57,7 @@ const TOOLS = [
                 endDate: { type: 'string', description: 'Fecha de fin en formato YYYY-MM-DD' },
                 language: { type: 'string', enum: ['es', 'ca', 'en', 'fr', 'de', 'it'] }
             },
-            required: ['keywords']
+            required: []
         }
     },
     {
@@ -293,6 +303,129 @@ const TOOLS = [
             },
             required: ['grantUrls']
         }
+    },
+    {
+        name: 'extractEntities',
+        description: 'Extraer entidades importantes de un documento (organizaciones, fechas, montos, keywords, requisitos, objetivos). Puede recibir el texto del documento directamente o un archivo PDF/DOCX en base64.',
+        parameters: {
+            type: 'object',
+            properties: {
+                documentText: { 
+                    type: 'string', 
+                    description: 'Texto del documento a analizar. Si no se proporciona, se debe usar documentFile con fileType.' 
+                },
+                documentFile: { 
+                    type: 'string', 
+                    description: 'Base64 del archivo PDF o DOCX a analizar. Requiere fileType.' 
+                },
+                fileType: { 
+                    type: 'string', 
+                    enum: ['pdf', 'docx'],
+                    description: 'Tipo de archivo si se proporciona documentFile' 
+                },
+                documentType: { 
+                    type: 'string', 
+                    enum: ['convocatoria', 'propuesta', 'informe', 'general'],
+                    description: 'Tipo de documento para mejor análisis'
+                }
+            },
+            required: []
+        }
+    },
+    {
+        name: 'generateSummary',
+        description: 'Generar resumen ejecutivo de un documento largo. Puede recibir el texto del documento directamente o un archivo PDF/DOCX en base64. Si el usuario ha adjuntado un PDF y pide un resumen, usa documentFile con fileType.',
+        parameters: {
+            type: 'object',
+            properties: {
+                documentText: { 
+                    type: 'string', 
+                    description: 'Texto del documento a resumir. Si no se proporciona, se debe usar documentFile con fileType.' 
+                },
+                documentFile: { 
+                    type: 'string', 
+                    description: 'Base64 del archivo PDF o DOCX a resumir. Requiere fileType. Úsalo cuando el usuario haya adjuntado un archivo.' 
+                },
+                fileType: { 
+                    type: 'string', 
+                    enum: ['pdf', 'docx'],
+                    description: 'Tipo de archivo si se proporciona documentFile' 
+                },
+                maxLength: { type: 'number', description: 'Longitud máxima del resumen en palabras (default: 500)' },
+                focusAreas: { 
+                    type: 'array', 
+                    items: { type: 'string' },
+                    description: 'Áreas específicas en las que enfocarse'
+                }
+            },
+            required: []
+        }
+    },
+    {
+        name: 'compareDocuments',
+        description: 'Comparar múltiples documentos lado a lado identificando similitudes, diferencias y recomendaciones. Cada documento puede ser texto o un archivo PDF/DOCX.',
+        parameters: {
+            type: 'object',
+            properties: {
+                documents: {
+                    type: 'array',
+                    items: {
+                        type: 'object',
+                        properties: {
+                            name: { type: 'string', description: 'Nombre del documento' },
+                            content: { 
+                                type: 'string', 
+                                description: 'Texto del documento. Si no se proporciona, se debe usar file con fileType.' 
+                            },
+                            file: { 
+                                type: 'string', 
+                                description: 'Base64 del archivo PDF o DOCX. Requiere fileType.' 
+                            },
+                            fileType: { 
+                                type: 'string', 
+                                enum: ['pdf', 'docx'],
+                                description: 'Tipo de archivo si se proporciona file' 
+                            }
+                        }
+                    },
+                    description: 'Array de documentos a comparar (mínimo 2). Cada documento debe tener content o file+fileType.'
+                },
+                comparisonCriteria: {
+                    type: 'array',
+                    items: { type: 'string' },
+                    description: 'Criterios específicos de comparación'
+                }
+            },
+            required: ['documents']
+        }
+    },
+    {
+        name: 'analyzeDocumentStructure',
+        description: 'Analizar la estructura y calidad de un documento (completitud, claridad, coherencia). Puede recibir el texto del documento directamente o un archivo PDF/DOCX en base64.',
+        parameters: {
+            type: 'object',
+            properties: {
+                documentText: { 
+                    type: 'string', 
+                    description: 'Texto del documento a analizar. Si no se proporciona, se debe usar documentFile con fileType.' 
+                },
+                documentFile: { 
+                    type: 'string', 
+                    description: 'Base64 del archivo PDF o DOCX a analizar. Requiere fileType.' 
+                },
+                fileType: { 
+                    type: 'string', 
+                    enum: ['pdf', 'docx'],
+                    description: 'Tipo de archivo si se proporciona documentFile' 
+                },
+                documentType: { 
+                    type: 'string', 
+                    enum: ['convocatoria', 'propuesta', 'informe'],
+                    description: 'Tipo de documento'
+                }
+            },
+            required: ['documentType']
+        }
     }
 ];
 
@@ -310,6 +443,10 @@ const TOOL_TO_MINIWIN: Record<string, { name: string; module: string }> = {
     analyzeObservations: { name: 'Transcripto', module: 'Readapt' },
     adaptProposal: { name: 'Transcripto', module: 'Readapt' },
     generateReapplicationPlan: { name: 'Transcripto', module: 'Readapt' },
+    extractEntities: { name: 'Ponder', module: 'Validate' },
+    generateSummary: { name: 'Ponder', module: 'Validate' },
+    compareDocuments: { name: 'Explora', module: 'Find' },
+    analyzeDocumentStructure: { name: 'Ponder', module: 'Validate' },
 };
 
 // Mapeo de nombres de funciones a implementaciones
@@ -326,6 +463,10 @@ const TOOL_IMPLEMENTATIONS: Record<string, Function> = {
     adaptProposal: readaptTools.adaptProposal,
     generateReapplicationPlan: readaptTools.generateReapplicationPlan,
     compareGrants: findTools.compareGrants,
+    extractEntities: documentAnalysisTools.extractEntities,
+    generateSummary: documentAnalysisTools.generateSummary,
+    compareDocuments: documentAnalysisTools.compareDocuments,
+    analyzeDocumentStructure: documentAnalysisTools.analyzeDocumentStructure,
 };
 
 /**
@@ -567,6 +708,68 @@ IMPORTANTE:
 - Si falta información para algún parámetro, usa valores por defecto razonables o pregunta al usuario
 - Después de ejecutar la herramienta, recibirás el resultado y deberás explicarlo al usuario de forma clara y estructurada usando markdown
 
+**MANEJO DE ARCHIVOS ADJUNTOS (PDFs, DOCX):**
+- Si el usuario ha adjuntado un archivo PDF o DOCX y necesitas usar una herramienta que analiza documentos (generateSummary, extractEntities, analyzeDocumentStructure, etc.):
+  1. Puedes ver el archivo adjunto en el contenido del mensaje del usuario
+  2. Si llamas a la herramienta SIN documentFile, el sistema automáticamente usará el archivo adjunto
+  3. Si quieres ser explícito, puedes usar documentFile y fileType, pero NO es necesario - el sistema lo hará automáticamente
+  4. NO necesitas extraer el texto manualmente - la herramienta lo hará automáticamente
+  5. Ejemplo para un PDF adjunto cuando el usuario pide un resumen (puedes omitir documentFile y fileType):
+     \`\`\`tool
+     {
+       "tool": "generateSummary",
+       "params": {
+         "maxLength": 500
+       }
+     }
+     \`\`\`
+     O si prefieres ser explícito:
+     \`\`\`tool
+     {
+       "tool": "generateSummary",
+       "params": {
+         "documentFile": "[el sistema lo inyectará automáticamente]",
+         "fileType": "pdf",
+         "maxLength": 500
+       }
+     }
+     \`\`\`
+- Si el usuario menciona un documento del historial de conversación que ya fue procesado, puedes usar documentText directamente con el texto ya extraído
+
+**CUANDO EL USUARIO PIDE USAR "FIND" O "BUSCAR" CON UN PDF:**
+- Si el usuario dice "usa find con este PDF", "busca oportunidades con este documento", "busca subvenciones para este proyecto" (y adjunta un PDF):
+  1. DEBES usar searchOpportunities (NO generateSummary ni extractEntities)
+  2. Puedes pasar el PDF usando documentFile y fileType - la herramienta extraerá keywords automáticamente
+  3. El sistema automáticamente inyectará el attachment si no lo especificas
+  4. Ejemplo:
+     \`\`\`tool
+     {
+       "tool": "searchOpportunities",
+       "params": {
+         "documentFile": "[el sistema lo inyectará automáticamente]",
+         "fileType": "pdf",
+         "fundingTypes": {
+           "nationalSubsidies": true,
+           "internationalSubsidies": true,
+           "nationalTenders": false,
+           "internationalTenders": false
+         }
+       }
+     }
+     \`\`\`
+  5. O simplemente (el sistema inyectará el archivo automáticamente):
+     \`\`\`tool
+     {
+       "tool": "searchOpportunities",
+       "params": {
+         "fundingTypes": {
+           "nationalSubsidies": true,
+           "internationalSubsidies": true
+         }
+       }
+     }
+     \`\`\`
+
 **ESPECIALMENTE PARA generateConcept:**
 - Cuando el usuario confirme que está listo (dice "sí estoy listo", "estoy listo", "adelante", "procede", "ok", "sí", "si", "de acuerdo", "perfecto", "vamos", etc.), DEBES llamar INMEDIATAMENTE a generateConcept
 - NO solo digas que vas a comunicarte con Inventa - DEBES incluir el bloque de código \`\`\`tool con la llamada real
@@ -702,6 +905,37 @@ ${userMessage}`;
         if (toolCalls.length > 0) {
             const toolResults = await Promise.all(
                 toolCalls.map(async (tc) => {
+                    // Si la herramienta necesita documentFile pero no está en params y hay attachments, agregarlo
+                    const toolsThatNeedFiles = ['generateSummary', 'extractEntities', 'analyzeDocumentStructure', 'searchOpportunities'];
+                    if (toolsThatNeedFiles.includes(tc.tool) && !tc.params.documentFile && attachments.length > 0) {
+                        // Buscar el primer PDF o DOCX en los attachments
+                        const pdfAttachment = attachments.find(att => 
+                            att.type === 'application/pdf' || att.type.includes('wordprocessingml')
+                        );
+                        if (pdfAttachment) {
+                            tc.params.documentFile = pdfAttachment.data;
+                            tc.params.fileType = pdfAttachment.type === 'application/pdf' ? 'pdf' : 'docx';
+                        }
+                    }
+                    
+                    // Para compareDocuments, buscar archivos en los documentos
+                    if (tc.tool === 'compareDocuments' && tc.params.documents) {
+                        const documentsWithFiles = tc.params.documents.map((doc: any, idx: number) => {
+                            if (!doc.content && !doc.file && attachments.length > idx) {
+                                const att = attachments[idx];
+                                if (att.type === 'application/pdf' || att.type.includes('wordprocessingml')) {
+                                    return {
+                                        ...doc,
+                                        file: att.data,
+                                        fileType: att.type === 'application/pdf' ? 'pdf' : 'docx'
+                                    };
+                                }
+                            }
+                            return doc;
+                        });
+                        tc.params.documents = documentsWithFiles;
+                    }
+                    
                     const result = await executeTool(tc.tool, tc.params);
                     return { tool: tc.tool, result };
                 })

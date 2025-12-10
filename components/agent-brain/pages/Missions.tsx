@@ -21,26 +21,35 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { processMessage } from '../../../lib/agent/agent';
 import { downloadMarkdown, downloadJSON } from '../../../lib/agent/utils/download';
+import { ExportMenu } from '../../common/ExportMenu';
+import { TemplateSelector } from '../../common/TemplateSelector';
+import { PromptTemplate } from '../../../lib/templates/promptTemplates';
+import { TaskFilters, TaskFilter } from '../../common/TaskFilters';
+import { searchConversations, ConversationFilter } from '../../../lib/utils/searchConversations';
 
 const SuggestionCard: React.FC<{ icon: string, title: string; description: string; onClick: () => void }> = ({ icon, title, description, onClick }) => (
     <motion.div
-        whileHover={{ y: -4, transition: { duration: 0.2 }, boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1)' }}
+        whileHover={{ y: -4, scale: 1.02, transition: { duration: 0.2 } }}
+        className="relative"
     >
         <button
-            className="w-full text-left p-4 bg-card rounded-xl border border-border cursor-pointer transition-shadow relative overflow-hidden group"
+            className="w-full text-left p-4 rounded-xl border border-border cursor-pointer transition-all duration-300 relative overflow-hidden group bg-gradient-to-br from-card via-card to-primary/5 dark:to-primary/10 shadow-sm hover:shadow-lg hover:border-primary/30"
             onClick={onClick}
         >
-            <div className="flex items-start gap-4">
-                <div className="w-10 h-10 flex-shrink-0 flex items-center justify-center rounded-lg bg-primary-50 dark:bg-primary-900/30 text-primary">
+            {/* Gradiente de fondo animado */}
+            <div className="absolute inset-0 bg-gradient-to-br from-primary/10 via-transparent to-secondary/10 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+            
+            <div className="relative flex items-start gap-4">
+                <div className="w-10 h-10 flex-shrink-0 flex items-center justify-center rounded-lg bg-gradient-to-br from-primary-100 to-primary-200 dark:from-primary-900/50 dark:to-primary-800/50 text-primary shadow-sm group-hover:shadow-md transition-shadow">
                      <span className="material-symbols-outlined">{icon}</span>
                 </div>
-                <div>
-                    <h3 className="font-semibold text-card-foreground">{title}</h3>
+                <div className="flex-1">
+                    <h3 className="font-semibold text-card-foreground group-hover:text-primary transition-colors">{title}</h3>
                     <p className="text-sm text-muted-foreground mt-1">{description}</p>
                 </div>
             </div>
-            <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                <span className="material-symbols-outlined text-muted-foreground text-lg">arrow_forward</span>
+            <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-all duration-300 transform group-hover:translate-x-1">
+                <span className="material-symbols-outlined text-primary text-lg">arrow_forward</span>
             </div>
         </button>
     </motion.div>
@@ -57,10 +66,14 @@ const Missions: React.FC = () => {
     const [currentMiniWin, setCurrentMiniWin] = useState<{ name: string; module: string } | null>(null);
     const [attachments, setAttachments] = useState<Attachment[]>([]);
     const scrollRef = useRef<HTMLDivElement>(null);
+    const messagesContainerRef = useRef<HTMLDivElement>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [view, setView] = useState<'chat' | 'tasks'>('chat');
     const [priority, setPriority] = useState<'Low' | 'Medium' | 'High' | null>(null);
+    const [taskFilters, setTaskFilters] = useState<TaskFilter>({});
+    const [searchQuery, setSearchQuery] = useState('');
+    const [searchFilter, setSearchFilter] = useState<ConversationFilter>({});
 
     const isTourActive = !settings.onboarding.hasCompleted;
 
@@ -73,8 +86,22 @@ const Missions: React.FC = () => {
     const currentPriority = useMemo(() => priorities.find(p => p.level === priority), [priority]);
     
     useEffect(() => {
-        scrollRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, [settings.conversationHistory, view]);
+        // Hacer scroll hacia abajo cuando hay nuevos mensajes
+        if (messagesContainerRef.current && view === 'chat' && settings.conversationHistory.length > 0) {
+            // Usar un pequeño delay para asegurar que el DOM se haya actualizado completamente
+            const timeoutId = setTimeout(() => {
+                if (messagesContainerRef.current) {
+                    const container = messagesContainerRef.current;
+                    container.scrollTo({
+                        top: container.scrollHeight,
+                        behavior: 'smooth'
+                    });
+                }
+            }, 100);
+            
+            return () => clearTimeout(timeoutId);
+        }
+    }, [settings.conversationHistory.length, view]);
 
      useEffect(() => {
         if (textareaRef.current) {
@@ -213,6 +240,7 @@ const Missions: React.FC = () => {
                 text: result.response,
                 timestamp: new Date().toISOString(),
                 priority: null,
+                toolCalls: result.toolCalls,
             };
             
             updateSetting('conversationHistory', [...historyWithUserMessage, modelMessage]);
@@ -242,8 +270,39 @@ const Missions: React.FC = () => {
         handleSend(prompt);
     };
 
+    const handleTemplateSelect = (template: PromptTemplate) => {
+        handleSend(template.prompt);
+    };
+
     const tasks = useMemo(() => {
-        const taskMessages = settings.conversationHistory.filter(msg => msg.priority);
+        let taskMessages = settings.conversationHistory.filter(msg => msg.priority);
+        
+        // Aplicar filtros
+        if (taskFilters.priority) {
+            taskMessages = taskMessages.filter(msg => msg.priority === taskFilters.priority);
+        }
+        
+        if (taskFilters.search) {
+            const searchLower = taskFilters.search.toLowerCase();
+            taskMessages = taskMessages.filter(msg => 
+                msg.text?.toLowerCase().includes(searchLower)
+            );
+        }
+        
+        if (taskFilters.dateFrom) {
+            taskMessages = taskMessages.filter(msg => {
+                const msgDate = new Date(msg.timestamp);
+                return msgDate >= taskFilters.dateFrom!;
+            });
+        }
+        
+        if (taskFilters.dateTo) {
+            taskMessages = taskMessages.filter(msg => {
+                const msgDate = new Date(msg.timestamp);
+                return msgDate <= taskFilters.dateTo!;
+            });
+        }
+        
         const grouped: { [key in 'High' | 'Medium' | 'Low']: Message[] } = { High: [], Medium: [], Low: [] };
         
         taskMessages.forEach(msg => {
@@ -255,7 +314,7 @@ const Missions: React.FC = () => {
             ...grouped['Medium'],
             ...grouped['Low'],
         ];
-    }, [settings.conversationHistory]);
+    }, [settings.conversationHistory, taskFilters]);
 
     // Función para obtener el icono del MiniWin basado en el módulo
     const getMiniWinIcon = (module: string) => {
@@ -270,33 +329,65 @@ const Missions: React.FC = () => {
     };
 
     return (
-        <div className="flex flex-col h-full bg-neutral-50 dark:bg-neutral-950">
-            <header className="px-6 pt-6 bg-background flex-shrink-0">
-                 <div className="flex justify-between items-center">
+        <div className="flex flex-col h-full bg-neutral-50 dark:bg-neutral-950 relative overflow-hidden">
+            {/* Gradiente de fondo sutil */}
+            <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-transparent to-secondary/5 dark:from-primary/10 dark:via-transparent dark:to-secondary/10 pointer-events-none" />
+            <div className="absolute top-0 right-0 w-96 h-96 bg-primary/10 dark:bg-primary/20 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 pointer-events-none" />
+            <div className="absolute bottom-0 left-0 w-96 h-96 bg-secondary/10 dark:bg-secondary/20 rounded-full blur-3xl translate-y-1/2 -translate-x-1/2 pointer-events-none" />
+            
+            <header className="px-6 pt-6 pb-4 bg-background/80 backdrop-blur-sm flex-shrink-0 relative z-10 border-b border-border/50">
+                 <div className="flex justify-between items-center gap-4">
                     <h1 className="text-lg font-semibold text-secondary-800 dark:text-neutral-200">Dr. Win</h1>
-                    <div className="flex items-center gap-1 p-1 bg-neutral-200 dark:bg-neutral-800 rounded-lg">
-                        <Button data-tour-id="chat-tab" size="sm" onClick={() => setView('chat')} variant={view === 'chat' ? 'secondary' : 'ghost'} className={cn("gap-1.5", view === 'chat' && 'bg-white dark:bg-neutral-950')}>
-                            <span className="material-symbols-outlined text-base">chat</span> {t('missions.view.chat')}
-                        </Button>
-                        <Button data-tour-id="tasks-tab" size="sm" onClick={() => setView('tasks')} variant={view === 'tasks' ? 'secondary' : 'ghost'} className={cn("gap-1.5", view === 'tasks' && 'bg-white dark:bg-neutral-950')}>
-                            <span className="material-symbols-outlined text-base">task_alt</span> {t('missions.view.tasks')}
-                        </Button>
+                    <div className="flex items-center gap-2">
+                        {view === 'chat' && settings.conversationHistory.length > 0 && (
+                            <>
+                                <div className="flex-1 relative max-w-xs">
+                                    <input
+                                        type="text"
+                                        placeholder="Buscar en conversación..."
+                                        value={searchQuery}
+                                        onChange={(e) => {
+                                            setSearchQuery(e.target.value);
+                                            setSearchFilter({ ...searchFilter, search: e.target.value });
+                                        }}
+                                        className="w-full px-3 py-1.5 pl-9 text-sm border border-border/50 rounded-lg bg-background/80 dark:bg-background/60 backdrop-blur-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50"
+                                    />
+                                    <span className="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground text-base">
+                                        search
+                                    </span>
+                                </div>
+                                <ExportMenu messages={settings.conversationHistory.map(msg => ({
+                                    role: msg.role,
+                                    text: msg.text || '',
+                                    timestamp: msg.timestamp,
+                                    priority: msg.priority || undefined
+                                }))} />
+                            </>
+                        )}
+                        <div className="flex items-center gap-1 p-1 bg-neutral-200/80 dark:bg-neutral-800/80 backdrop-blur-sm rounded-lg border border-border/50 shadow-sm">
+                            <Button data-tour-id="chat-tab" size="sm" onClick={() => setView('chat')} variant={view === 'chat' ? 'secondary' : 'ghost'} className={cn("gap-1.5 transition-all duration-200", view === 'chat' && 'bg-white dark:bg-neutral-950 shadow-sm hover:shadow-md')}>
+                                <span className="material-symbols-outlined text-base">chat</span> {t('missions.view.chat')}
+                            </Button>
+                            <Button data-tour-id="tasks-tab" size="sm" onClick={() => setView('tasks')} variant={view === 'tasks' ? 'secondary' : 'ghost'} className={cn("gap-1.5 transition-all duration-200", view === 'tasks' && 'bg-white dark:bg-neutral-950 shadow-sm hover:shadow-md')}>
+                                <span className="material-symbols-outlined text-base">task_alt</span> {t('missions.view.tasks')}
+                            </Button>
+                        </div>
                     </div>
                  </div>
             </header>
-            <div className="flex-1 overflow-y-auto p-6 space-y-6">
+            <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-6 space-y-6 relative z-0 max-w-5xl mx-auto w-full">
                 <AnimatePresence mode="wait">
-                    <motion.div
+                                <motion.div
                         key={view}
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -10 }}
-                        transition={{ duration: 0.2 }}
+                        initial={{ opacity: 0, y: 10, scale: 0.98 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: -10, scale: 0.98 }}
+                        transition={{ duration: 0.3, ease: [0.4, 0, 0.2, 1] }}
                     >
                 {view === 'chat' && (
                     <>
                         {settings.conversationHistory.length === 0 ? (
-                            <div className="flex flex-col items-center justify-center h-full text-center pt-8">
+                            <div className="flex flex-col items-center justify-center h-full text-center pt-8 relative">
                                 <DrWin className="w-28 h-28 mb-4" />
                                 <h1 className="text-2xl font-bold text-secondary dark:text-neutral-200">{t('missions.chat.welcome')}</h1>
                                 <Button variant="ghost" size="sm" className="mt-4 gap-1.5" onClick={handleStartTour}>
@@ -318,97 +409,122 @@ const Missions: React.FC = () => {
                             </div>
                         ) : (
                             <>
-                                {settings.conversationHistory.map((msg, index) => (
-                                    <div key={index} className={cn("flex items-start gap-3 mb-4", msg.role === 'user' ? 'justify-end' : 'justify-start')}>
-                                        {msg.role === 'model' && <DrWin className="w-8 h-8 flex-shrink-0 mt-1.5" />}
-                                        <div 
-                                            className={cn(
-                                                "p-3 rounded-lg prose prose-sm dark:prose-invert relative",
-                                                msg.role === 'user' 
-                                                    ? 'max-w-[80%]' 
-                                                    : 'bg-card border border-border max-w-[90%]'
-                                            )}
-                                            style={msg.role === 'user' ? {
-                                                backgroundColor: theme === 'dark' ? '#2c1526' : '#f7cfe6',
-                                                color: theme === 'dark' ? '#f7cfe6' : '#1a1a1a'
-                                            } : undefined}
+                                <div className="space-y-4">
+                                    {(searchQuery.trim() ? searchConversations(settings.conversationHistory, searchFilter) : settings.conversationHistory).map((msg, index) => (
+                                        <motion.div 
+                                            key={index} 
+                                            initial={{ opacity: 0, y: 10, scale: 0.98 }}
+                                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                                            transition={{ duration: 0.3, delay: index * 0.05 }}
+                                            className={cn("flex items-start gap-3", msg.role === 'user' ? 'justify-end' : 'justify-start')}
                                         >
-                                            {msg.priority && (
-                                                <div className={cn("absolute -top-2 -left-2 flex items-center gap-1 text-xs font-bold px-1.5 py-0.5 rounded-full text-white", priorities.find(p=>p.level===msg.priority)?.color)}>
-                                                    <span className="material-symbols-outlined text-xs">{priorities.find(p=>p.level===msg.priority)?.icon}</span>
-                                                    <span>{t(`missions.priority.${msg.priority.toLowerCase()}` as any)}</span>
-                                                </div>
+                                            {msg.role === 'model' && (
+                                                <motion.div
+                                                    initial={{ scale: 0 }}
+                                                    animate={{ scale: 1 }}
+                                                    transition={{ delay: index * 0.05 + 0.1, type: "spring", stiffness: 200 }}
+                                                    className="flex-shrink-0"
+                                                >
+                                                    <DrWin className="w-8 h-8 mt-1.5" />
+                                                </motion.div>
                                             )}
-                                            {msg.role === 'model' && msg.text && (
-                                                <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                    <div className="flex gap-1">
-                                                        <Button
-                                                            variant="ghost"
-                                                            size="icon"
-                                                            className="h-6 w-6"
-                                                            onClick={() => {
-                                                                const timestamp = new Date().toISOString().split('T')[0];
-                                                                downloadMarkdown(msg.text || '', `respuesta-${timestamp}.md`);
-                                                                toast.success('Documento descargado');
-                                                            }}
-                                                            title="Descargar como Markdown"
-                                                        >
-                                                            <span className="material-symbols-outlined text-sm">download</span>
-                                                        </Button>
-                                                    </div>
-                                                </div>
-                                            )}
-                                            {msg.text && (
-                                                <div className="markdown-content group">
-                                                    <ReactMarkdown
-                                                        remarkPlugins={[remarkGfm]}
-                                                        components={{
-                                                            p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
-                                                            h1: ({ children }) => <h1 className="text-2xl font-bold mb-2 mt-4 first:mt-0">{children}</h1>,
-                                                            h2: ({ children }) => <h2 className="text-xl font-bold mb-2 mt-4 first:mt-0">{children}</h2>,
-                                                            h3: ({ children }) => <h3 className="text-lg font-semibold mb-2 mt-3 first:mt-0">{children}</h3>,
-                                                            ul: ({ children }) => <ul className="list-disc list-inside mb-2 space-y-1">{children}</ul>,
-                                                            ol: ({ children }) => <ol className="list-decimal list-inside mb-2 space-y-1">{children}</ol>,
-                                                            li: ({ children }) => <li className="ml-2">{children}</li>,
-                                                            code: ({ children, className }) => {
-                                                                const isInline = !className;
-                                                                return isInline ? (
-                                                                    <code className="bg-black/10 dark:bg-white/10 px-1 py-0.5 rounded text-sm font-mono">{children}</code>
-                                                                ) : (
-                                                                    <code className="block bg-black/10 dark:bg-white/10 p-2 rounded text-sm font-mono overflow-x-auto">{children}</code>
-                                                                );
-                                                            },
-                                                            pre: ({ children }) => <pre className="bg-black/10 dark:bg-white/10 p-2 rounded mb-2 overflow-x-auto">{children}</pre>,
-                                                            blockquote: ({ children }) => <blockquote className="border-l-4 border-primary pl-4 italic my-2">{children}</blockquote>,
-                                                            table: ({ children }) => <table className="border-collapse border border-border my-2 w-full">{children}</table>,
-                                                            th: ({ children }) => <th className="border border-border px-2 py-1 bg-muted font-semibold">{children}</th>,
-                                                            td: ({ children }) => <td className="border border-border px-2 py-1">{children}</td>,
-                                                            a: ({ href, children }) => <a href={href} target="_blank" rel="noopener noreferrer" className="text-primary underline hover:text-primary/80">{children}</a>,
-                                                        }}
+                                            <motion.div 
+                                                whileHover={{ scale: 1.01 }}
+                                                className={cn(
+                                                    "p-4 rounded-lg prose prose-sm dark:prose-invert relative transition-all duration-200 break-words",
+                                                    msg.role === 'user' 
+                                                        ? 'max-w-[75%] shadow-sm hover:shadow-md' 
+                                                        : 'bg-card/80 dark:bg-card/60 backdrop-blur-sm border border-border/50 max-w-[85%] shadow-sm hover:shadow-md'
+                                                )}
+                                                style={msg.role === 'user' ? {
+                                                    background: theme === 'dark' 
+                                                        ? 'linear-gradient(135deg, #2c1526 0%, #3d1f35 100%)' 
+                                                        : 'linear-gradient(135deg, #f7cfe6 0%, #f0d9e8 100%)',
+                                                    color: theme === 'dark' ? '#f7cfe6' : '#1a1a1a'
+                                                } : undefined}
+                                            >
+                                                {msg.priority && (
+                                                    <motion.div 
+                                                        initial={{ scale: 0, rotate: -180 }}
+                                                        animate={{ scale: 1, rotate: 0 }}
+                                                        transition={{ type: "spring", stiffness: 200, delay: 0.2 }}
+                                                        className={cn("absolute -top-2 -left-2 flex items-center gap-1 text-xs font-bold px-1.5 py-0.5 rounded-full text-white shadow-md", priorities.find(p=>p.level===msg.priority)?.color)}
                                                     >
-                                                        {msg.text}
-                                                    </ReactMarkdown>
-                                                </div>
-                                            )}
-                                            {msg.attachments && msg.attachments.length > 0 && (
-                                                <div className={cn("mt-2 flex flex-wrap gap-2", !msg.text && "mt-0")}>
-                                                    {msg.attachments.map((att, idx) => (
-                                                        <div key={idx} className="w-24 h-24 rounded-md overflow-hidden border border-black/10">
-                                                            {att.type.startsWith('image/') ? (
-                                                                <img src={`data:${att.type};base64,${att.data}`} alt={att.name} className="w-full h-full object-cover" />
-                                                            ) : (
-                                                                <div className={cn("w-full h-full flex flex-col items-center justify-center p-2", msg.role === 'user' ? 'bg-white/20 text-foreground' : 'bg-neutral-100 dark:bg-neutral-800 text-foreground')}>
-                                                                    <span className="material-symbols-outlined text-3xl">description</span>
-                                                                    <span className="text-xs text-center break-all truncate w-full">{att.name}</span>
-                                                                </div>
-                                                            )}
+                                                        <span className="material-symbols-outlined text-xs">{priorities.find(p=>p.level===msg.priority)?.icon}</span>
+                                                        <span>{t(`missions.priority.${msg.priority.toLowerCase()}` as any)}</span>
+                                                    </motion.div>
+                                                )}
+                                                {msg.role === 'model' && msg.text && (
+                                                    <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                        <div className="flex gap-1">
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="icon"
+                                                                className="h-6 w-6"
+                                                                onClick={() => {
+                                                                    const timestamp = new Date().toISOString().split('T')[0];
+                                                                    downloadMarkdown(msg.text || '', `respuesta-${timestamp}.md`);
+                                                                    toast.success('Documento descargado');
+                                                                }}
+                                                                title="Descargar como Markdown"
+                                                            >
+                                                                <span className="material-symbols-outlined text-sm">download</span>
+                                                            </Button>
                                                         </div>
-                                                    ))}
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
-                                ))}
+                                                    </div>
+                                                )}
+                                                {msg.text && (
+                                                    <div className="markdown-content group">
+                                                        <ReactMarkdown
+                                                            remarkPlugins={[remarkGfm]}
+                                                            components={{
+                                                                p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                                                                h1: ({ children }) => <h1 className="text-2xl font-bold mb-2 mt-4 first:mt-0">{children}</h1>,
+                                                                h2: ({ children }) => <h2 className="text-xl font-bold mb-2 mt-4 first:mt-0">{children}</h2>,
+                                                                h3: ({ children }) => <h3 className="text-lg font-semibold mb-2 mt-3 first:mt-0">{children}</h3>,
+                                                                ul: ({ children }) => <ul className="list-disc list-inside mb-2 space-y-1">{children}</ul>,
+                                                                ol: ({ children }) => <ol className="list-decimal list-inside mb-2 space-y-1">{children}</ol>,
+                                                                li: ({ children }) => <li className="ml-2">{children}</li>,
+                                                                code: ({ children, className }) => {
+                                                                    const isInline = !className;
+                                                                    return isInline ? (
+                                                                        <code className="bg-black/10 dark:bg-white/10 px-1 py-0.5 rounded text-sm font-mono">{children}</code>
+                                                                    ) : (
+                                                                        <code className="block bg-black/10 dark:bg-white/10 p-2 rounded text-sm font-mono overflow-x-auto">{children}</code>
+                                                                    );
+                                                                },
+                                                                pre: ({ children }) => <pre className="bg-black/10 dark:bg-white/10 p-2 rounded mb-2 overflow-x-auto">{children}</pre>,
+                                                                blockquote: ({ children }) => <blockquote className="border-l-4 border-primary pl-4 italic my-2">{children}</blockquote>,
+                                                                table: ({ children }) => <table className="border-collapse border border-border my-2 w-full">{children}</table>,
+                                                                th: ({ children }) => <th className="border border-border px-2 py-1 bg-muted font-semibold">{children}</th>,
+                                                                td: ({ children }) => <td className="border border-border px-2 py-1">{children}</td>,
+                                                                a: ({ href, children }) => <a href={href} target="_blank" rel="noopener noreferrer" className="text-primary underline hover:text-primary/80">{children}</a>,
+                                                            }}
+                                                        >
+                                                            {msg.text}
+                                                        </ReactMarkdown>
+                                                    </div>
+                                                )}
+                                                {msg.attachments && msg.attachments.length > 0 && (
+                                                    <div className={cn("mt-2 flex flex-wrap gap-2", !msg.text && "mt-0")}>
+                                                        {msg.attachments.map((att, idx) => (
+                                                            <div key={idx} className="w-24 h-24 rounded-md overflow-hidden border border-black/10">
+                                                                {att.type.startsWith('image/') ? (
+                                                                    <img src={`data:${att.type};base64,${att.data}`} alt={att.name} className="w-full h-full object-cover" />
+                                                                ) : (
+                                                                    <div className={cn("w-full h-full flex flex-col items-center justify-center p-2", msg.role === 'user' ? 'bg-white/20 text-foreground' : 'bg-neutral-100 dark:bg-neutral-800 text-foreground')}>
+                                                                        <span className="material-symbols-outlined text-3xl">description</span>
+                                                                        <span className="text-xs text-center break-all truncate w-full">{att.name}</span>
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </motion.div>
+                                        </motion.div>
+                                    ))}
+                                </div>
                                 <AnimatePresence>
                                 {isLoading && (
                                     <motion.div 
@@ -490,47 +606,84 @@ const Missions: React.FC = () => {
 
                 {view === 'tasks' && (
                     <div>
-                        {tasks.length === 0 ? (
+                        {tasks.length === 0 && !taskFilters.priority && !taskFilters.search ? (
                              <div className="flex flex-col items-center justify-center h-full text-center pt-24">
                                 <span className="material-symbols-outlined text-6xl text-muted-foreground">task_alt</span>
                                 <h2 className="mt-4 text-xl font-semibold">{t('missions.tasks.empty.title')}</h2>
                                 <p className="mt-2 text-muted-foreground">{t('missions.tasks.empty.desc')}</p>
                              </div>
                         ) : (
-                            <div className="space-y-4">
-                                {priorities.map(p => {
-                                    const priorityTasks = tasks.filter(task => task.priority === p.level);
-                                    if (priorityTasks.length === 0) return null;
-                                    return (
-                                        <div key={p.level}>
-                                            <h3 className="flex items-center gap-2 text-sm font-semibold mb-2">
-                                                <span className={cn("w-2 h-2 rounded-full", p.color)}></span>
-                                                {t(`missions.priority.${p.level.toLowerCase()}` as any)}
-                                            </h3>
-                                            <div className="space-y-2">
-                                                {priorityTasks.map(task => (
-                                                     <div key={task.timestamp} className="p-3 bg-card border border-border rounded-md">
-                                                        <p className="text-sm">{task.text}</p>
-                                                     </div>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    )
-                                })}
-                            </div>
+                            <>
+                                <TaskFilters 
+                                    filters={taskFilters} 
+                                    onFiltersChange={setTaskFilters}
+                                    taskCount={tasks.length}
+                                />
+                                {tasks.length === 0 ? (
+                                    <div className="flex flex-col items-center justify-center text-center pt-12">
+                                        <span className="material-symbols-outlined text-4xl text-muted-foreground mb-2">filter_alt_off</span>
+                                        <p className="text-muted-foreground">No se encontraron tareas con los filtros aplicados</p>
+                                    </div>
+                                ) : (
+                                    <div className="space-y-4">
+                                        {priorities.map(p => {
+                                            const priorityTasks = tasks.filter(task => task.priority === p.level);
+                                            if (priorityTasks.length === 0) return null;
+                                            return (
+                                                <div key={p.level}>
+                                                    <h3 className="flex items-center gap-2 text-sm font-semibold mb-2">
+                                                        <span className={cn("w-2 h-2 rounded-full", p.color)}></span>
+                                                        {t(`missions.priority.${p.level.toLowerCase()}` as any)}
+                                                        <span className="text-xs text-muted-foreground">({priorityTasks.length})</span>
+                                                    </h3>
+                                                    <div className="space-y-2">
+                                                        {priorityTasks.map((task, idx) => (
+                                                             <motion.div 
+                                                                key={task.timestamp} 
+                                                                initial={{ opacity: 0, x: -10 }}
+                                                                animate={{ opacity: 1, x: 0 }}
+                                                                transition={{ delay: idx * 0.05 }}
+                                                                className="p-3 bg-card/80 dark:bg-card/60 backdrop-blur-sm border border-border/50 rounded-md shadow-sm hover:shadow-md hover:border-primary/30 transition-all duration-200 group"
+                                                            >
+                                                                <div className="flex items-start justify-between gap-2">
+                                                                    <p className="text-sm flex-1">{task.text}</p>
+                                                                    <span className="text-xs text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity">
+                                                                        {new Date(task.timestamp).toLocaleDateString('es-ES', { 
+                                                                            day: '2-digit', 
+                                                                            month: 'short',
+                                                                            hour: '2-digit',
+                                                                            minute: '2-digit'
+                                                                        })}
+                                                                    </span>
+                                                                </div>
+                                                             </motion.div>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            )
+                                        })}
+                                    </div>
+                                )}
+                            </>
                         )}
                     </div>
                 )}
                 </motion.div>
                 </AnimatePresence>
             </div>
-            <div className="p-4 border-t border-border bg-background/95 backdrop-blur-sm">
+            <div className="p-4 border-t border-border/50 bg-background/80 dark:bg-background/60 backdrop-blur-xl relative z-10">
                 <div className="max-w-4xl mx-auto">
                     {attachments.length > 0 && (
                         <div className="mb-3">
                             <div className="flex gap-2 overflow-x-auto pb-2">
                                 {attachments.map((file, index) => (
-                                    <div key={index} className="relative flex-shrink-0 w-24 h-24 bg-card border border-border rounded-lg overflow-hidden group shadow-sm hover:shadow-md transition-shadow">
+                                    <motion.div 
+                                        key={index} 
+                                        initial={{ scale: 0.8, opacity: 0 }}
+                                        animate={{ scale: 1, opacity: 1 }}
+                                        transition={{ delay: index * 0.1 }}
+                                        className="relative flex-shrink-0 w-24 h-24 bg-card/80 dark:bg-card/60 backdrop-blur-sm border border-border/50 rounded-lg overflow-hidden group shadow-sm hover:shadow-lg transition-all duration-200 hover:scale-105"
+                                    >
                                         {file.type.startsWith('image/') ? (
                                             <img src={`data:${file.type};base64,${file.data}`} alt={file.name} className="w-full h-full object-cover" />
                                         ) : (
@@ -546,33 +699,38 @@ const Missions: React.FC = () => {
                                         >
                                             <span className="material-symbols-outlined text-sm leading-none">close</span>
                                         </button>
-                                    </div>
+                                    </motion.div>
                                 ))}
                             </div>
                         </div>
                     )}
                     <form onSubmit={(e) => { e.preventDefault(); handleSend(); }}>
-                        <div className="flex items-center gap-2 bg-card border border-border rounded-xl p-2 shadow-sm hover:shadow-md transition-shadow">
-                            <Button 
-                                type="button" 
-                                variant="ghost" 
-                                size="icon" 
-                                className="flex-shrink-0 h-10 w-10 rounded-lg hover:bg-primary/10 hover:text-primary transition-colors" 
-                                onClick={handleNewChat}
-                                title="Nuevo chat"
-                            >
-                                <span className="material-symbols-outlined text-lg">add</span>
-                            </Button>
-                            <Button 
-                                type="button" 
-                                variant="ghost" 
-                                size="icon" 
-                                className="flex-shrink-0 h-10 w-10 rounded-lg hover:bg-primary/10 hover:text-primary transition-colors" 
-                                onClick={() => fileInputRef.current?.click()}
-                                title="Adjuntar archivo"
-                            >
-                                <span className="material-symbols-outlined text-lg">attach_file</span>
-                            </Button>
+                        <div className="flex items-center gap-2 bg-card/80 dark:bg-card/60 backdrop-blur-sm border border-border/50 rounded-xl p-2 shadow-lg hover:shadow-xl transition-all duration-300 hover:border-primary/30">
+                                    <motion.div whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.95 }}>
+                                        <Button 
+                                            type="button" 
+                                            variant="ghost" 
+                                            size="icon" 
+                                            className="flex-shrink-0 h-10 w-10 rounded-lg hover:bg-primary/10 hover:text-primary transition-all duration-200" 
+                                            onClick={handleNewChat}
+                                            title="Nuevo chat"
+                                        >
+                                            <span className="material-symbols-outlined text-lg">add</span>
+                                        </Button>
+                                    </motion.div>
+                                    <motion.div whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.95 }}>
+                                        <Button 
+                                            type="button" 
+                                            variant="ghost" 
+                                            size="icon" 
+                                            className="flex-shrink-0 h-10 w-10 rounded-lg hover:bg-primary/10 hover:text-primary transition-all duration-200" 
+                                            onClick={() => fileInputRef.current?.click()}
+                                            title="Adjuntar archivo"
+                                        >
+                                            <span className="material-symbols-outlined text-lg">attach_file</span>
+                                        </Button>
+                                    </motion.div>
+                                    <TemplateSelector onSelect={handleTemplateSelect} disabled={isLoading} />
                             <input
                                 type="file"
                                 multiple
@@ -630,21 +788,26 @@ const Missions: React.FC = () => {
                                         </DropdownMenuContent>
                                     </DropdownMenu>
 
-                                    <Button 
-                                        data-tour-id="send-button" 
-                                        type="submit" 
-                                        size="icon" 
-                                        className={cn(
-                                            "h-8 w-8 rounded-lg transition-all duration-200",
-                                            isLoading || (!isTourActive && !input.trim() && attachments.length === 0)
-                                                ? "bg-muted text-muted-foreground cursor-not-allowed"
-                                                : "bg-primary hover:bg-primary/90 text-white shadow-sm hover:shadow-md hover:scale-105"
-                                        )}
-                                        disabled={isLoading || (!isTourActive && !input.trim() && attachments.length === 0)}
-                                        title="Enviar mensaje"
+                                    <motion.div 
+                                        whileHover={!isLoading && (isTourActive || input.trim() || attachments.length > 0) ? { scale: 1.1 } : {}}
+                                        whileTap={!isLoading && (isTourActive || input.trim() || attachments.length > 0) ? { scale: 0.95 } : {}}
                                     >
-                                        <span className="material-symbols-outlined text-base">arrow_upward</span>
-                                    </Button>
+                                        <Button 
+                                            data-tour-id="send-button" 
+                                            type="submit" 
+                                            size="icon" 
+                                            className={cn(
+                                                "h-8 w-8 rounded-lg transition-all duration-200",
+                                                isLoading || (!isTourActive && !input.trim() && attachments.length === 0)
+                                                    ? "bg-muted text-muted-foreground cursor-not-allowed"
+                                                    : "bg-gradient-to-br from-primary to-primary-600 hover:from-primary-600 hover:to-primary-700 text-white shadow-md hover:shadow-lg"
+                                            )}
+                                            disabled={isLoading || (!isTourActive && !input.trim() && attachments.length === 0)}
+                                            title="Enviar mensaje"
+                                        >
+                                            <span className="material-symbols-outlined text-base">arrow_upward</span>
+                                        </Button>
+                                    </motion.div>
                                 </div>
                             </div>
                         </div>

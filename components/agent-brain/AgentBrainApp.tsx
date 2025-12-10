@@ -15,6 +15,7 @@ import SupportModal from '../SupportModal';
 const Missions = lazy(() => import('./pages/Missions'));
 const CognitiveProfiles = lazy(() => import('./pages/CognitiveProfiles'));
 const Configuration = lazy(() => import('./pages/Configuration'));
+const Statistics = lazy(() => import('./pages/Statistics'));
 
 const tourSteps = [
     { target: '', titleKey: 'onboarding.welcome.title', contentKey: 'onboarding.welcome.content', position: 'center' as const },
@@ -62,6 +63,8 @@ const AgentBrainApp: React.FC = () => {
         return <CognitiveProfiles />;
       case 'configuration':
         return <Configuration />;
+      case 'statistics':
+        return <Statistics />;
       default:
         return <Missions />;
     }
@@ -81,9 +84,10 @@ const AgentBrainApp: React.FC = () => {
                         animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0, y: -15 }}
                         transition={{ duration: 0.2 }}
-                        className="h-full"
                     >
-                        {renderPage()}
+                        <div className="h-full">
+                            {renderPage()}
+                        </div>
                     </motion.div>
                 </AnimatePresence>
             </Suspense>

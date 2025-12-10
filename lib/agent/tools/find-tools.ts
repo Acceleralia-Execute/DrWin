@@ -42,6 +42,109 @@ const getTimestampFromDate = (dateString: string): number | null => !dateString 
 const getEndOfDayTimestamp = (dateString: string): number | null => !dateString ? null : new Date(dateString + 'T23:59:59').getTime();
 
 /**
+ * Función auxiliar para extraer texto de un archivo PDF o DOCX
+ */
+async function extractTextFromFile(fileData: string, fileType: 'pdf' | 'docx'): Promise<string> {
+    try {
+        const mimeType = fileType === 'pdf' 
+            ? 'application/pdf' 
+            : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+        
+        const response = await ai.models.generateContent({
+            model: "gemini-2.5-flash",
+            contents: [
+                {
+                    text: "Extrae todo el texto de este documento y devuélvelo como texto plano, preservando la estructura, párrafos y formato básico."
+                },
+                {
+                    inlineData: {
+                        mimeType,
+                        data: fileData,
+                    }
+                }
+            ],
+            config: {
+                maxOutputTokens: 8000,
+            },
+        });
+        
+        return response.text.trim();
+    } catch (error: any) {
+        console.error('Error extracting text from file:', error);
+        throw new Error(`Error al extraer texto del archivo: ${error.message}`);
+    }
+}
+
+/**
+ * Extraer keywords de un documento usando AI
+ */
+async function extractKeywordsFromDocument(documentText: string): Promise<string[]> {
+    try {
+        // Limitar el texto para no exceder tokens (usar primeros 5000 caracteres)
+        const limitedText = documentText.substring(0, 5000);
+        
+        const response = await ai.models.generateContent({
+            model: "gemini-2.5-flash",
+            contents: `Extrae las palabras clave más importantes de este documento para buscar oportunidades de financiación y subvenciones. 
+
+Enfócate en:
+- Tecnologías mencionadas
+- Sectores o industrias
+- Objetivos del proyecto
+- Áreas de investigación o desarrollo
+- Términos técnicos relevantes
+
+Devuelve SOLO un array JSON de strings con las keywords más relevantes (máximo 10-15). No incluyas explicaciones, solo el array JSON.
+
+DOCUMENTO:
+${limitedText}
+
+Formato de respuesta: ["keyword1", "keyword2", ...]`,
+            config: {
+                maxOutputTokens: 500,
+            },
+        });
+        
+        const responseText = response.text.trim();
+        
+        // Intentar extraer el array JSON
+        const jsonMatch = responseText.match(/\[[\s\S]*\]/);
+        if (jsonMatch) {
+            try {
+                const keywords = JSON.parse(jsonMatch[0]);
+                if (Array.isArray(keywords) && keywords.length > 0) {
+                    return keywords.filter((kw: any) => typeof kw === 'string' && kw.length > 2);
+                }
+            } catch (parseError) {
+                console.warn('Failed to parse keywords JSON:', parseError);
+            }
+        }
+        
+        // Fallback: extraer palabras significativas del texto
+        const words = documentText
+            .toLowerCase()
+            .replace(/[^\w\s]/g, ' ')
+            .split(/\s+/)
+            .filter((w: string) => w.length > 4)
+            .filter((w: string) => !['proyecto', 'documento', 'memoria', 'técnica', 'propuesta'].includes(w));
+        
+        // Devolver las palabras más frecuentes (máximo 10)
+        const wordCounts = new Map<string, number>();
+        words.forEach((w: string) => {
+            wordCounts.set(w, (wordCounts.get(w) || 0) + 1);
+        });
+        
+        return Array.from(wordCounts.entries())
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 10)
+            .map(([word]) => word);
+    } catch (error: any) {
+        console.error('Error extracting keywords:', error);
+        throw new Error(`Error al extraer keywords: ${error.message}`);
+    }
+}
+
+/**
  * Usar LLM para traducir keywords del español al inglés de forma genérica
  * La API de European Commission busca en documentos en inglés
  */
@@ -306,9 +409,27 @@ export async function searchOpportunities(params: SearchOpportunitiesParams | an
             }
         }
 
+        // Si no hay keywords pero hay un archivo, extraer keywords del documento
+        if ((!keywords || keywords.length === 0) && params.documentFile && params.fileType) {
+            try {
+                // Extraer texto del archivo
+                const documentText = await extractTextFromFile(params.documentFile, params.fileType);
+                
+                // Extraer keywords del texto
+                keywords = await extractKeywordsFromDocument(documentText);
+                
+                console.log('Keywords extraídas del documento:', keywords);
+            } catch (error: any) {
+                console.error('Error extrayendo keywords del documento:', error);
+                return { 
+                    error: `Error al procesar el documento: ${error.message}. Por favor, proporciona keywords manualmente o verifica que el archivo sea válido.` 
+                };
+            }
+        }
+
         // Validar que keywords no esté vacío
         if (!keywords || keywords.length === 0) {
-            return { error: 'Se requieren palabras clave para la búsqueda' };
+            return { error: 'Se requieren palabras clave para la búsqueda. Proporciona keywords directamente o adjunta un documento PDF/DOCX del cual extraerlas.' };
         }
 
         // Mapear filters a fundingTypes si viene en ese formato

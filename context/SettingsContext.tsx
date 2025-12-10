@@ -20,6 +20,7 @@ export interface Message {
     timestamp: string;
     priority?: 'Low' | 'Medium' | 'High' | null;
     attachments?: Attachment[];
+    toolCalls?: Array<{ name: string; args: any }>;
 }
 
 interface Settings {

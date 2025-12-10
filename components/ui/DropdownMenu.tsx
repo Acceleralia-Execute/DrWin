@@ -79,15 +79,17 @@ export const DropdownMenuTrigger = forwardRef<HTMLButtonElement, React.ButtonHTM
 );
 DropdownMenuTrigger.displayName = "DropdownMenuTrigger"
 
-export const DropdownMenuContent = forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement> & { align?: 'start' | 'center' | 'end', forceMount?: boolean }>(
-    ({ className, align = 'end', forceMount, ...props }, ref) => {
+export const DropdownMenuContent = forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement> & { align?: 'start' | 'center' | 'end', side?: 'top' | 'bottom', forceMount?: boolean }>(
+    ({ className, align = 'end', side = 'bottom', forceMount, ...props }, ref) => {
         const { open, contentRef } = useDropdownMenu();
         
         const alignClasses = {
-            start: 'origin-top-left left-0',
-            center: 'origin-top top-full left-1/2 -translate-x-1/2',
-            end: 'origin-top-right right-0'
+            start: side === 'top' ? 'origin-bottom-left left-0 bottom-full' : 'origin-top-left left-0 top-full',
+            center: side === 'top' ? 'origin-bottom bottom-full left-1/2 -translate-x-1/2' : 'origin-top top-full left-1/2 -translate-x-1/2',
+            end: side === 'top' ? 'origin-bottom-right right-0 bottom-full' : 'origin-top-right right-0 top-full'
         }
+        
+        const marginClass = side === 'top' ? 'mb-2' : 'mt-2';
 
         return (
              <AnimatePresence>
@@ -98,12 +100,13 @@ export const DropdownMenuContent = forwardRef<HTMLDivElement, React.HTMLAttribut
                             if (typeof ref === 'function') ref(node);
                             else if (ref) ref.current = node;
                         }}
-                        initial={{ opacity: 0, scale: 0.95, y: -5 }}
+                        initial={{ opacity: 0, scale: 0.95, y: side === 'top' ? 5 : -5 }}
                         animate={{ opacity: 1, scale: 1, y: 0 }}
-                        exit={{ opacity: 0, scale: 0.95, y: -5 }}
+                        exit={{ opacity: 0, scale: 0.95, y: side === 'top' ? 5 : -5 }}
                         transition={{ duration: 0.1 }}
                         className={cn(
-                            "absolute z-50 mt-2 min-w-[8rem] overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none",
+                            "absolute z-[100] min-w-[8rem] overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none",
+                            marginClass,
                             alignClasses[align],
                             className
                         )}
